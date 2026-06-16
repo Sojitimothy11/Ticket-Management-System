@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { authClient } from "../lib/auth-client";
 
 export function Navbar() {
@@ -13,11 +13,23 @@ export function Navbar() {
     });
   };
 
+  const isAdmin = (session?.user as { role?: string } | undefined)?.role === "ADMIN";
+
   return (
     <nav className="flex items-center justify-between h-15 px-6 bg-slate-800 text-slate-50 shadow">
-      <span className="font-bold text-sm tracking-wide">
-        Ticket Management System
-      </span>
+      <div className="flex items-center gap-6">
+        <span className="font-bold text-sm tracking-wide">
+          Ticket Management System
+        </span>
+        {isAdmin && (
+          <Link
+            to="/users"
+            className="text-sm text-slate-300 hover:text-white transition-colors"
+          >
+            Users
+          </Link>
+        )}
+      </div>
       {session && (
         <div className="flex items-center gap-4">
           <span className="text-sm text-slate-300">{session.user.name}</span>
