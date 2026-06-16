@@ -8,15 +8,19 @@
     "build": "bun build src/index.ts --outdir dist --target bun"
   },
   "dependencies": {
+    "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
+    "better-auth": "^1.6.19",
     "cors": "^2.8.5",
     "express": "^5.1.0",
+    "pg": "^8.21.0",
     "prisma": "^7.8.0"
   },
   "devDependencies": {
-    "@types/express": "^5.0.3",
-    "@types/cors": "^2.8.17",
     "@types/bun": "latest",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.3",
+    "@types/pg": "^8.20.0",
     "typescript": "^5.8.3"
   }
 }
