@@ -14,38 +14,16 @@ export function Navbar() {
   };
 
   return (
-    <nav
-      style={{
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        padding: "0 24px",
-        height: "60px",
-        background: "#1e293b",
-        color: "#f8fafc",
-        boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
-      }}
-    >
-      <span style={{ fontWeight: 700, fontSize: "1rem", letterSpacing: "0.01em" }}>
+    <nav className="flex items-center justify-between h-15 px-6 bg-slate-800 text-slate-50 shadow">
+      <span className="font-bold text-sm tracking-wide">
         Ticket Management System
       </span>
       {session && (
-        <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-          <span style={{ fontSize: "0.9rem", color: "#cbd5e1" }}>
-            {session.user.name}
-          </span>
+        <div className="flex items-center gap-4">
+          <span className="text-sm text-slate-300">{session.user.name}</span>
           <button
             onClick={handleSignOut}
-            style={{
-              padding: "6px 16px",
-              background: "#dc2626",
-              color: "#fff",
-              border: "none",
-              borderRadius: "6px",
-              fontSize: "0.875rem",
-              cursor: "pointer",
-              fontWeight: 500,
-            }}
+            className="px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-md cursor-pointer transition-colors"
           >
             Sign Out
           </button>

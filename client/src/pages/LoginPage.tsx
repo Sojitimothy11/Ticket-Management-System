@@ -1,162 +1,92 @@
 import { useState } from "react";
 import { Navigate, useNavigate, Link } from "react-router";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { authClient } from "../lib/auth-client";
+
+const schema = z.object({
+  email: z.string().email("Invalid email address"),
+  password: z.string().min(1, "Password is required"),
+});
+
+type LoginFormData = z.infer<typeof schema>;
 
 export function LoginPage() {
   const navigate = useNavigate();
   const { data: session, isPending } = authClient.useSession();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm<LoginFormData>({ resolver: zodResolver(schema) });
 
   if (isPending) return null;
   if (session) return <Navigate to="/" replace />;
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
-
-    const { error } = await authClient.signIn.email({ email, password });
-
-    setLoading(false);
-
+  const onSubmit = async (data: LoginFormData) => {
+    setServerError(null);
+    const { error } = await authClient.signIn.email(data);
     if (error) {
-      setError(error.message ?? "Failed to sign in.");
+      setServerError(error.message ?? "Failed to sign in.");
     } else {
       navigate("/");
     }
   };
 
   return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        minHeight: "100vh",
-        background: "#f1f5f9",
-      }}
-    >
-      <div
-        style={{
-          background: "#fff",
-          borderRadius: "10px",
-          padding: "40px",
-          width: "360px",
-          boxShadow: "0 4px 20px rgba(0,0,0,0.08)",
-        }}
-      >
-        <h1 style={{ margin: "0 0 6px", fontSize: "1.5rem", color: "#0f172a" }}>
-          Sign In
-        </h1>
-        <p style={{ margin: "0 0 28px", color: "#64748b", fontSize: "0.9rem" }}>
-          Sign in to your account to continue
-        </p>
+    <div className="min-h-screen bg-slate-100 flex items-center justify-center">
+      <div className="bg-white rounded-xl shadow-lg p-10 w-full max-w-sm">
+        <h1 className="text-2xl font-bold text-slate-900 mb-1">Sign In</h1>
+        <p className="text-sm text-slate-500 mb-7">Sign in to your account to continue</p>
 
-        <form
-          onSubmit={handleSubmit}
-          style={{ display: "flex", flexDirection: "column", gap: "18px" }}
-        >
+        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-5">
           <div>
-            <label
-              style={{
-                display: "block",
-                marginBottom: "6px",
-                fontWeight: 500,
-                fontSize: "0.875rem",
-                color: "#374151",
-              }}
-            >
-              Email
-            </label>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Email</label>
             <input
+              {...register("email")}
               type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
               placeholder="you@example.com"
-              style={{
-                width: "100%",
-                padding: "9px 12px",
-                border: "1px solid #d1d5db",
-                borderRadius: "6px",
-                fontSize: "0.95rem",
-                boxSizing: "border-box",
-                outline: "none",
-              }}
+              className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
+            {errors.email && (
+              <p className="mt-1 text-xs text-red-600">{errors.email.message}</p>
+            )}
           </div>
 
           <div>
-            <label
-              style={{
-                display: "block",
-                marginBottom: "6px",
-                fontWeight: 500,
-                fontSize: "0.875rem",
-                color: "#374151",
-              }}
-            >
-              Password
-            </label>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Password</label>
             <input
+              {...register("password")}
               type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
               placeholder="••••••••"
-              style={{
-                width: "100%",
-                padding: "9px 12px",
-                border: "1px solid #d1d5db",
-                borderRadius: "6px",
-                fontSize: "0.95rem",
-                boxSizing: "border-box",
-                outline: "none",
-              }}
+              className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
+            {errors.password && (
+              <p className="mt-1 text-xs text-red-600">{errors.password.message}</p>
+            )}
           </div>
 
-          {error && (
-            <p
-              style={{
-                margin: 0,
-                color: "#dc2626",
-                fontSize: "0.875rem",
-                background: "#fef2f2",
-                border: "1px solid #fecaca",
-                borderRadius: "6px",
-                padding: "8px 12px",
-              }}
-            >
-              {error}
+          {serverError && (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+              {serverError}
             </p>
           )}
 
           <button
             type="submit"
-            disabled={loading}
-            style={{
-              padding: "10px",
-              background: loading ? "#93c5fd" : "#2563eb",
-              color: "#fff",
-              border: "none",
-              borderRadius: "6px",
-              fontSize: "0.95rem",
-              fontWeight: 600,
-              cursor: loading ? "not-allowed" : "pointer",
-              transition: "background 0.15s",
-            }}
+            disabled={isSubmitting}
+            className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-semibold rounded-md transition-colors cursor-pointer disabled:cursor-not-allowed"
           >
-            {loading ? "Signing in..." : "Sign In"}
+            {isSubmitting ? "Signing in..." : "Sign In"}
           </button>
         </form>
 
-        <p style={{ margin: "20px 0 0", textAlign: "center", fontSize: "0.875rem", color: "#64748b" }}>
+        <p className="mt-5 text-center text-sm text-slate-500">
           Don't have an account?{" "}
-          <Link to="/signup" style={{ color: "#2563eb", textDecoration: "none", fontWeight: 500 }}>
+          <Link to="/signup" className="text-blue-600 font-medium hover:underline">
             Sign up
           </Link>
         </p>
