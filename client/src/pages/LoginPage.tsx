@@ -7,7 +7,7 @@ import { authClient } from "../lib/auth-client";
 
 const schema = z.object({
   email: z.string().email("Invalid email address"),
-  password: z.string().min(1, "Password is required"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
 });
 
 type LoginFormData = z.infer<typeof schema>;

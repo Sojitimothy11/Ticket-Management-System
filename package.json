@@ -1,5 +1,5 @@
 {
   "name": "ticket-management-system",
   "private": true,
-  "workspaces": ["client", "server"]
+  "workspaces": ["client", "server", "e2e"]
 }
