@@ -7,6 +7,7 @@ const router = Router();
 
 router.get("/", requireAdmin, async (_req, res) => {
   const users = await prisma.user.findMany({
+    where: { deletedAt: null },
     select: {
       id: true,
       name: true,
@@ -54,6 +55,73 @@ router.post("/", requireAdmin, async (req, res) => {
     const e = err as { status?: number; statusCode?: number; message?: string };
     res.status(e.status ?? e.statusCode ?? 400).json({ error: e.message ?? "Failed to create user" });
   }
+});
+
+router.patch("/:id", requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { name, email, role, password } = req.body as {
+    name?: string;
+    email?: string;
+    role?: string;
+    password?: string;
+  };
+
+  if (!name?.trim() || !email?.trim()) {
+    res.status(400).json({ error: "name and email are required" });
+    return;
+  }
+
+  const assignedRole = role === "ADMIN" ? "ADMIN" : "AGENT";
+
+  try {
+    const user = await prisma.user.update({
+      where: { id },
+      data: { name: name.trim(), email: email.trim(), role: assignedRole },
+      select: { id: true, name: true, email: true, role: true, emailVerified: true, createdAt: true },
+    });
+
+    if (password?.trim()) {
+      await auth.api.setUserPassword({
+        body: { userId: id, newPassword: password.trim() },
+        headers: req.headers as any,
+      });
+    }
+
+    res.json(user);
+  } catch (err: unknown) {
+    const e = err as { code?: string; status?: number; statusCode?: number; message?: string };
+    if (e.code === "P2002") {
+      res.status(400).json({ error: "Email is already taken" });
+      return;
+    }
+    res.status(e.status ?? e.statusCode ?? 500).json({ error: e.message ?? "Failed to update user" });
+  }
+});
+
+router.delete("/:id", requireAdmin, async (req, res) => {
+  const { id } = req.params;
+
+  const user = await prisma.user.findUnique({
+    where: { id },
+    select: { role: true, deletedAt: true },
+  });
+
+  if (!user || user.deletedAt) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  if (user.role === "ADMIN") {
+    res.status(403).json({ error: "Admin users cannot be deleted" });
+    return;
+  }
+
+  await prisma.user.update({
+    where: { id },
+    data: { deletedAt: new Date() },
+  });
+
+  res.status(204).end();
 });
 
 export default router;

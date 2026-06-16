@@ -32,6 +32,7 @@ model User {
   createdAt     DateTime
   updatedAt     DateTime
   role          Role      @default(AGENT)
+  deletedAt     DateTime?
 
   sessions        Session[]
   accounts        Account[]
