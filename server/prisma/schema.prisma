@@ -33,6 +33,9 @@ model User {
   updatedAt     DateTime
   role          Role      @default(AGENT)
   deletedAt     DateTime?
+  banned        Boolean   @default(false)
+  banReason     String?
+  banExpires    DateTime?
 
   sessions        Session[]
   accounts        Account[]
@@ -50,6 +53,7 @@ model Session {
   updatedAt DateTime
   ipAddress String?
   userAgent String?
+  impersonatedBy String?
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 

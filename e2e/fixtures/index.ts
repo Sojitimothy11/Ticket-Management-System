@@ -45,6 +45,10 @@ export const test = baseTest.extend<Fixtures>({
     });
     expect(res.ok(), "Test user sign-up should succeed").toBeTruthy();
 
+    // Sign-up logs the browser context in immediately; clear that session so we can
+    // exercise the actual sign-in form below instead of bouncing off the redirect-if-authed check.
+    await page.context().clearCookies();
+
     // Sign in through the UI so the session cookie lands in the browser context
     await page.goto("/login");
     await page.getByLabel("Email").fill(TEST_USER.email);

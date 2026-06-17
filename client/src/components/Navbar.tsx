@@ -21,6 +21,14 @@ export function Navbar() {
         <span className="font-bold text-sm tracking-wide">
           Ticket Management System
         </span>
+        {session && (
+          <Link
+            to="/tickets"
+            className="text-sm text-slate-300 hover:text-white transition-colors"
+          >
+            Tickets
+          </Link>
+        )}
         {isAdmin && (
           <Link
             to="/users"

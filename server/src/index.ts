@@ -4,6 +4,8 @@ import helmet from "helmet";
 import { toNodeHandler } from "better-auth/node";
 import { auth } from "./lib/auth";
 import usersRouter from "./routes/users";
+import emailRouter from "./routes/email";
+import ticketsRouter from "./routes/tickets";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -21,6 +23,8 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.use("/api/users", usersRouter);
+app.use("/api/email", emailRouter);
+app.use("/api/tickets", ticketsRouter);
 
 
 app.listen(PORT, () => {

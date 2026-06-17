@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>SendGrid Inbound Parse Setup Guide</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Helvetica, Arial, sans-serif; color: #1a1a1a; line-height: 1.55; max-width: 760px; margin: 40px auto; padding: 0 24px; }
+  h1 { font-size: 22px; border-bottom: 2px solid #2563eb; padding-bottom: 8px; }
+  h2 { font-size: 16px; color: #2563eb; margin-top: 32px; }
+  code, pre { font-family: Consolas, "Courier New", monospace; font-size: 13px; }
+  pre { background: #f4f5f7; border: 1px solid #e1e4e8; border-radius: 6px; padding: 12px 14px; overflow-x: auto; white-space: pre-wrap; }
+  code.inline { background: #f4f5f7; padding: 1px 5px; border-radius: 4px; }
+  ul, ol { padding-left: 22px; }
+  li { margin-bottom: 4px; }
+  .note { background: #fff8e1; border-left: 4px solid #f5c518; padding: 10px 14px; border-radius: 4px; margin: 14px 0; font-size: 13.5px; }
+  hr { border: none; border-top: 1px solid #e1e4e8; margin: 28px 0; }
+  footer { font-size: 12px; color: #888; margin-top: 40px; }
+</style>
+</head>
+<body>
+
+<h1>SendGrid Inbound Parse — Setup Guide</h1>
+<p>How to wire up the support inbox so incoming emails are converted into tickets by the
+<code class="inline">POST /api/email/inbound/:secret</code> route already implemented in this project.</p>
+
+<h2>1. Pick a dedicated inbound subdomain</h2>
+<p>SendGrid wants a hostname used <em>only</em> for inbound parsing — don't reuse a domain you send outbound mail from.
+For example, if your domain is <code class="inline">yourdomain.com</code>, use <code class="inline">support.yourdomain.com</code>.</p>
+
+<h2>2. Add the MX record</h2>
+<p>In your DNS provider, add:</p>
+<pre>Type:     MX
+Host:     support.yourdomain.com
+Value:    mx.sendgrid.net
+Priority: 10</pre>
+<p>No SPF/DKIM/domain-authentication is needed for <em>receiving</em> mail — that's only required for outbound sending.
+Wait for DNS propagation, then verify:</p>
+<pre>nslookup -type=MX support.yourdomain.com</pre>
+<p>Confirm it resolves to <code class="inline">mx.sendgrid.net</code>.</p>
+
+<h2>3. Configure Inbound Parse in SendGrid</h2>
+<p>In the SendGrid dashboard: <strong>Settings → Inbound Parse → Add Host &amp; URL</strong></p>
+<ul>
+  <li><strong>Receiving domain/hostname:</strong> <code class="inline">support.yourdomain.com</code></li>
+  <li><strong>Destination URL:</strong> <code class="inline">https://&lt;your-deployed-backend&gt;/api/email/inbound/&lt;INBOUND_EMAIL_SECRET&gt;</code></li>
+  <li><strong>POST the raw, full MIME message:</strong> leave <strong>off</strong> — the route expects parsed fields
+  (<code class="inline">text</code>, <code class="inline">html</code>, <code class="inline">subject</code>, etc.), not raw MIME</li>
+  <li><strong>Check incoming emails for spam:</strong> optional, your call</li>
+</ul>
+<div class="note">
+  <strong>Note:</strong> <code class="inline">INBOUND_EMAIL_SECRET</code> is already generated in <code class="inline">server/.env</code>.
+  Use that real value when building the Destination URL — never put the real secret in <code class="inline">.env.example</code>.
+</div>
+
+<h2>4. Set <code class="inline">SUPPORT_EMAIL_ADDRESS</code></h2>
+<p>In <code class="inline">server/.env</code>, set it to match the address you'll actually receive mail at:</p>
+<pre>SUPPORT_EMAIL_ADDRESS="support@support.yourdomain.com"</pre>
+<p>This is the safety check in <code class="inline">email.ts</code> that ignores webhook calls not addressed to your support inbox.</p>
+
+<h2>5. Local development: expose your server publicly</h2>
+<p>SendGrid can't reach <code class="inline">localhost</code>. Use a tunnel while testing:</p>
+<pre>bun src/index.ts          # start your server on :3000
+ngrok http 3000            # in a separate terminal</pre>
+<p>Take the <code class="inline">https://xxxx.ngrok-free.app</code> URL ngrok gives you and temporarily set it as the
+Destination URL in SendGrid's Inbound Parse settings:</p>
+<pre>https://xxxx.ngrok-free.app/api/email/inbound/&lt;INBOUND_EMAIL_SECRET&gt;</pre>
+<div class="note">
+  The free ngrok URL changes every restart, so you'll need to update the SendGrid setting each session.
+  Point it at your real deployed URL once in production.
+</div>
+
+<h2>6. End-to-end test</h2>
+<p>Send a real email to <code class="inline">support@support.yourdomain.com</code>, then check:</p>
+<ul>
+  <li>Your server logs for the incoming POST</li>
+  <li>The <code class="inline">Ticket</code> and <code class="inline">Message</code> tables for the new row
+  (e.g. via <code class="inline">bunx prisma studio</code>)</li>
+</ul>
+
+<h2>7. Production</h2>
+<p>When you deploy, update the Inbound Parse Destination URL to your real backend domain — the MX record,
+secret, and route logic all stay the same.</p>
+
+<hr>
+<footer>Generated for the Ticket Management System project.</footer>
+
+</body>
+</html>

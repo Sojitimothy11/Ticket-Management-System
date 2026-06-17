@@ -19,7 +19,7 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
   },
-  plugins: [admin()],
+  plugins: [admin({ defaultRole: "AGENT", adminRoles: ["ADMIN"] })],
   user: {
     additionalFields: {
       role: {

@@ -45,9 +45,10 @@ export function SignupPage() {
 
         <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-5">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">Full Name</label>
+            <label htmlFor="name" className="block text-sm font-medium text-slate-700 mb-1.5">Full Name</label>
             <input
               {...register("name")}
+              id="name"
               type="text"
               placeholder="Jane Doe"
               className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -58,9 +59,10 @@ export function SignupPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">Email</label>
+            <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-1.5">Email</label>
             <input
               {...register("email")}
+              id="email"
               type="email"
               placeholder="you@example.com"
               className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -71,9 +73,10 @@ export function SignupPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">Password</label>
+            <label htmlFor="password" className="block text-sm font-medium text-slate-700 mb-1.5">Password</label>
             <input
               {...register("password")}
+              id="password"
               type="password"
               placeholder="••••••••"
               className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
