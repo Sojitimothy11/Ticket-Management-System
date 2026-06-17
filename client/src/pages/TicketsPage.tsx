@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
   createColumnHelper,
@@ -7,13 +8,19 @@ import {
   useReactTable,
   type SortingState,
 } from "@tanstack/react-table";
-import { ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
+import { ArrowUp, ArrowDown, ArrowUpDown, ChevronDown, ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { Navbar } from "../components/Navbar";
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+} from "../components/ui/dropdown-menu";
+import { statusStyles, categoryLabels, formatDate, type TicketStatus, type TicketCategory } from "../lib/tickets";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
-
-type TicketStatus = "OPEN" | "RESOLVED" | "CLOSED";
-type TicketCategory = "GENERAL_QUESTION" | "TECHNICAL_QUESTION" | "REFUND_REQUEST";
 
 type Ticket = {
   id: string;
@@ -30,39 +37,92 @@ type Ticket = {
 
 const API = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
 
-async function fetchTickets(sorting: SortingState): Promise<Ticket[]> {
+type TicketFilters = {
+  statuses: Set<TicketStatus>;
+  categories: Set<TicketCategory>;
+  search: string;
+};
+
+const PAGE_SIZE = 20;
+
+type TicketsResponse = {
+  tickets: Ticket[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+};
+
+async function fetchTickets(sorting: SortingState, filters: TicketFilters, page: number): Promise<TicketsResponse> {
   const params = new URLSearchParams();
   if (sorting[0]) {
     params.set("sortBy", sorting[0].id);
     params.set("sortOrder", sorting[0].desc ? "desc" : "asc");
   }
+  if (filters.statuses.size > 0) params.set("status", [...filters.statuses].join(","));
+  if (filters.categories.size > 0) params.set("category", [...filters.categories].join(","));
+  if (filters.search) params.set("q", filters.search);
+  params.set("page", String(page));
+  params.set("pageSize", String(PAGE_SIZE));
+
   const res = await fetch(`${API}/api/tickets?${params}`, { credentials: "include" });
   if (!res.ok) throw new Error(`Failed to load tickets (${res.status})`);
   return res.json();
 }
 
-// ─── Display helpers ─────────────────────────────────────────────────────────
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(timer);
+  }, [value, delayMs]);
+  return debounced;
+}
 
-const statusStyles: Record<TicketStatus, string> = {
-  OPEN: "bg-green-100 text-green-700",
-  RESOLVED: "bg-blue-100 text-blue-700",
-  CLOSED: "bg-slate-100 text-slate-500",
-};
+// ─── Filter dropdown ─────────────────────────────────────────────────────────
 
-const categoryLabels: Record<TicketCategory, string> = {
-  GENERAL_QUESTION: "General Question",
-  TECHNICAL_QUESTION: "Technical Question",
-  REFUND_REQUEST: "Refund Request",
-};
-
-function formatDate(value: string) {
-  return new Date(value).toLocaleString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+function FilterDropdown<T extends string>({
+  label,
+  options,
+  optionLabels,
+  selected,
+  onToggle,
+}: {
+  label: string;
+  options: readonly T[];
+  optionLabels: Record<T, string>;
+  selected: Set<T>;
+  onToggle: (value: T) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button variant="outline" size="sm">
+            {label}
+            {selected.size > 0 && (
+              <span className="ml-0.5 rounded-full bg-primary px-1.5 text-xs text-primary-foreground">
+                {selected.size}
+              </span>
+            )}
+            <ChevronDown size={14} />
+          </Button>
+        }
+      />
+      <DropdownMenuContent>
+        {options.map((option) => (
+          <DropdownMenuCheckboxItem
+            key={option}
+            checked={selected.has(option)}
+            onCheckedChange={() => onToggle(option)}
+            closeOnClick={false}
+          >
+            {optionLabels[option]}
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 }
 
 // ─── Columns ─────────────────────────────────────────────────────────────────
@@ -72,7 +132,11 @@ const columnHelper = createColumnHelper<Ticket>();
 const columns = [
   columnHelper.accessor("subject", {
     header: "Subject",
-    cell: (info) => <span className="font-medium text-slate-900">{info.getValue()}</span>,
+    cell: (info) => (
+      <Link to={`/tickets/${info.row.original.id}`} className="font-medium text-blue-600 hover:underline">
+        {info.getValue()}
+      </Link>
+    ),
   }),
   columnHelper.accessor((row) => row.customerName ?? row.customerEmail, {
     id: "customerName",
@@ -104,13 +168,49 @@ const columns = [
 
 // ─── Tickets Page ────────────────────────────────────────────────────────────
 
+const statusOptions: readonly TicketStatus[] = ["OPEN", "RESOLVED", "CLOSED"];
+const categoryOptions: readonly TicketCategory[] = ["GENERAL_QUESTION", "TECHNICAL_QUESTION", "REFUND_REQUEST"];
+
 export function TicketsPage() {
   const [sorting, setSorting] = useState<SortingState>([{ id: "createdAt", desc: true }]);
+  const [statusFilter, setStatusFilter] = useState<Set<TicketStatus>>(new Set());
+  const [categoryFilter, setCategoryFilter] = useState<Set<TicketCategory>>(new Set());
+  const [searchInput, setSearchInput] = useState("");
+  const search = useDebouncedValue(searchInput, 300);
+  const [page, setPage] = useState(1);
 
-  const { data: tickets, isPending, error } = useQuery({
-    queryKey: ["tickets", sorting],
-    queryFn: () => fetchTickets(sorting),
+  const filters: TicketFilters = { statuses: statusFilter, categories: categoryFilter, search };
+  const sortedStatuses = [...statusFilter].sort();
+  const sortedCategories = [...categoryFilter].sort();
+
+  // Any change to sorting/filters/search invalidates the current page of results.
+  useEffect(() => {
+    setPage(1);
+  }, [sorting, search, sortedStatuses.join(","), sortedCategories.join(",")]);
+
+  const { data, isPending, error } = useQuery({
+    queryKey: ["tickets", sorting, sortedStatuses, sortedCategories, search, page],
+    queryFn: () => fetchTickets(sorting, filters, page),
   });
+  const tickets = data?.tickets;
+
+  function toggleStatus(value: TicketStatus) {
+    setStatusFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return next;
+    });
+  }
+
+  function toggleCategory(value: TicketCategory) {
+    setCategoryFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return next;
+    });
+  }
 
   const table = useReactTable({
     data: tickets ?? [],
@@ -128,6 +228,45 @@ export function TicketsPage() {
       <Navbar />
       <main className="px-6 py-10">
         <h1 className="text-2xl font-bold text-slate-900 mb-6">Tickets</h1>
+
+        <div data-testid="ticket-filters" className="flex flex-wrap items-center gap-3 mb-5">
+          <div className="relative w-64">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Search subject or requester…"
+              className="pl-8"
+            />
+          </div>
+          <FilterDropdown
+            label="Status"
+            options={statusOptions}
+            optionLabels={{ OPEN: "Open", RESOLVED: "Resolved", CLOSED: "Closed" }}
+            selected={statusFilter}
+            onToggle={toggleStatus}
+          />
+          <FilterDropdown
+            label="Category"
+            options={categoryOptions}
+            optionLabels={categoryLabels}
+            selected={categoryFilter}
+            onToggle={toggleCategory}
+          />
+          {(statusFilter.size > 0 || categoryFilter.size > 0 || searchInput) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setStatusFilter(new Set());
+                setCategoryFilter(new Set());
+                setSearchInput("");
+              }}
+            >
+              Clear filters
+            </Button>
+          )}
+        </div>
 
         {isPending && <p className="text-slate-500">Loading…</p>}
 
@@ -182,6 +321,37 @@ export function TicketsPage() {
                 )}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {data && data.total > 0 && (
+          <div className="flex items-center justify-between mt-4 text-sm text-slate-500">
+            <span>
+              Showing {(data.page - 1) * data.pageSize + 1}–{Math.min(data.page * data.pageSize, data.total)} of {data.total} tickets
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={data.page <= 1}
+                onClick={() => setPage((p) => p - 1)}
+              >
+                <ChevronLeft size={14} />
+                Previous
+              </Button>
+              <span className="text-slate-600">
+                Page {data.page} of {data.totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={data.page >= data.totalPages}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Next
+                <ChevronRight size={14} />
+              </Button>
+            </div>
           </div>
         )}
       </main>
