@@ -22,6 +22,29 @@ function parseEnumList<T extends string>(value: unknown, allowed: readonly T[]):
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
 
+const ticketDetailSelect = {
+  id: true,
+  subject: true,
+  body: true,
+  status: true,
+  category: true,
+  customerEmail: true,
+  customerName: true,
+  createdAt: true,
+  updatedAt: true,
+  assignedTo: { select: { id: true, name: true } },
+  messages: {
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      body: true,
+      isFromCustomer: true,
+      createdAt: true,
+      user: { select: { id: true, name: true } },
+    },
+  },
+} satisfies Prisma.TicketSelect;
+
 router.get("/", requireAuth, async (req, res) => {
   const { sortBy, sortOrder, status, category, q, page, pageSize } = req.query as {
     sortBy?: string;
@@ -82,28 +105,7 @@ router.get("/", requireAuth, async (req, res) => {
 router.get("/:id", requireAuth, async (req, res) => {
   const ticket = await prisma.ticket.findUnique({
     where: { id: req.params.id },
-    select: {
-      id: true,
-      subject: true,
-      body: true,
-      status: true,
-      category: true,
-      customerEmail: true,
-      customerName: true,
-      createdAt: true,
-      updatedAt: true,
-      assignedTo: { select: { id: true, name: true } },
-      messages: {
-        orderBy: { createdAt: "asc" },
-        select: {
-          id: true,
-          body: true,
-          isFromCustomer: true,
-          createdAt: true,
-          user: { select: { id: true, name: true } },
-        },
-      },
-    },
+    select: ticketDetailSelect,
   });
 
   if (!ticket) {
@@ -112,6 +114,89 @@ router.get("/:id", requireAuth, async (req, res) => {
   }
 
   res.json(ticket);
+});
+
+router.patch("/:id", requireAuth, async (req, res) => {
+  const { assignedToId, status, category } = req.body as {
+    assignedToId?: string | null;
+    status?: string;
+    category?: string;
+  };
+
+  const data: Prisma.TicketUncheckedUpdateInput = {};
+
+  if (assignedToId !== undefined) {
+    if (assignedToId) {
+      const assignee = await prisma.user.findUnique({ where: { id: assignedToId }, select: { deletedAt: true } });
+      if (!assignee || assignee.deletedAt) {
+        res.status(400).json({ error: "Assignee not found" });
+        return;
+      }
+    }
+    data.assignedToId = assignedToId ?? null;
+  }
+
+  if (status !== undefined) {
+    if (!Object.values(TicketStatus).includes(status as TicketStatus)) {
+      res.status(400).json({ error: "Invalid status" });
+      return;
+    }
+    data.status = status as TicketStatus;
+  }
+
+  if (category !== undefined) {
+    if (!Object.values(TicketCategory).includes(category as TicketCategory)) {
+      res.status(400).json({ error: "Invalid category" });
+      return;
+    }
+    data.category = category as TicketCategory;
+  }
+
+  try {
+    const ticket = await prisma.ticket.update({
+      where: { id: req.params.id },
+      data,
+      select: ticketDetailSelect,
+    });
+    res.json(ticket);
+  } catch (err: unknown) {
+    const e = err as { code?: string };
+    if (e.code === "P2025") {
+      res.status(404).json({ error: "Ticket not found" });
+      return;
+    }
+    throw err;
+  }
+});
+
+router.post("/:id/messages", requireAuth, async (req, res) => {
+  const { body } = req.body as { body?: string };
+  const text = typeof body === "string" ? body.trim() : "";
+
+  if (!text) {
+    res.status(400).json({ error: "Reply body is required" });
+    return;
+  }
+
+  try {
+    const ticket = await prisma.ticket.update({
+      where: { id: req.params.id },
+      data: {
+        messages: {
+          create: { body: text, isFromCustomer: false, userId: req.user!.id },
+        },
+      },
+      select: ticketDetailSelect,
+    });
+    res.status(201).json(ticket);
+  } catch (err: unknown) {
+    const e = err as { code?: string };
+    if (e.code === "P2025") {
+      res.status(404).json({ error: "Ticket not found" });
+      return;
+    }
+    throw err;
+  }
 });
 
 export default router;

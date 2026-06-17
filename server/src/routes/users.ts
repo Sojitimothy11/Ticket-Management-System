@@ -2,8 +2,19 @@ import { Router } from "express";
 import { auth } from "../lib/auth";
 import prisma from "../lib/prisma";
 import { requireAdmin } from "../middleware/requireAdmin";
+import { requireAuth } from "../middleware/requireAuth";
 
 const router = Router();
+
+// Lightweight roster for populating "assign to" pickers — any authenticated user can see who's assignable.
+router.get("/assignable", requireAuth, async (_req, res) => {
+  const users = await prisma.user.findMany({
+    where: { deletedAt: null },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+  res.json(users);
+});
 
 router.get("/", requireAdmin, async (_req, res) => {
   const users = await prisma.user.findMany({
@@ -116,10 +127,16 @@ router.delete("/:id", requireAdmin, async (req, res) => {
     return;
   }
 
-  await prisma.user.update({
-    where: { id },
-    data: { deletedAt: new Date() },
-  });
+  await prisma.$transaction([
+    prisma.user.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    }),
+    prisma.ticket.updateMany({
+      where: { assignedToId: id },
+      data: { assignedToId: null },
+    }),
+  ]);
 
   res.status(204).end();
 });

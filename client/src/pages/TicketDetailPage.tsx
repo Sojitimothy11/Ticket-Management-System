@@ -1,7 +1,17 @@
+import { useState } from "react";
 import { Link, useParams } from "react-router";
-import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, ChevronDown } from "lucide-react";
 import { Navbar } from "../components/Navbar";
+import { Button } from "../components/ui/button";
+import { Textarea } from "../components/ui/textarea";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+} from "../components/ui/dropdown-menu";
 import { statusStyles, categoryLabels, formatDate, type TicketStatus, type TicketCategory } from "../lib/tickets";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -14,6 +24,8 @@ type Message = {
   user: { id: string; name: string } | null;
 };
 
+type Agent = { id: string; name: string };
+
 type TicketDetail = {
   id: string;
   subject: string;
@@ -24,8 +36,14 @@ type TicketDetail = {
   customerName: string | null;
   createdAt: string;
   updatedAt: string;
-  assignedTo: { id: string; name: string } | null;
+  assignedTo: Agent | null;
   messages: Message[];
+};
+
+type TicketPatch = {
+  assignedToId?: string | null;
+  status?: TicketStatus;
+  category?: TicketCategory;
 };
 
 // ─── API helpers ─────────────────────────────────────────────────────────────
@@ -36,6 +54,186 @@ async function fetchTicket(id: string): Promise<TicketDetail> {
   const res = await fetch(`${API}/api/tickets/${id}`, { credentials: "include" });
   if (!res.ok) throw new Error(res.status === 404 ? "Ticket not found" : `Failed to load ticket (${res.status})`);
   return res.json();
+}
+
+async function fetchAssignableUsers(): Promise<Agent[]> {
+  const res = await fetch(`${API}/api/users/assignable`, { credentials: "include" });
+  if (!res.ok) throw new Error(`Failed to load assignable users (${res.status})`);
+  return res.json();
+}
+
+async function patchTicket(id: string, patch: TicketPatch): Promise<TicketDetail> {
+  const res = await fetch(`${API}/api/tickets/${id}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error(`Failed to update ticket (${res.status})`);
+  return res.json();
+}
+
+async function postReply(id: string, body: string): Promise<TicketDetail> {
+  const res = await fetch(`${API}/api/tickets/${id}/messages`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ body }),
+  });
+  if (!res.ok) throw new Error(`Failed to send reply (${res.status})`);
+  return res.json();
+}
+
+function useTicketPatch(ticketId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (patch: TicketPatch) => patchTicket(ticketId, patch),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(["ticket", ticketId], updated);
+      queryClient.invalidateQueries({ queryKey: ["tickets"] });
+    },
+  });
+}
+
+// ─── Generic radio-select dropdown ──────────────────────────────────────────
+
+function RadioPicker<T extends string>({
+  value,
+  options,
+  optionLabels,
+  onSelect,
+  disabled,
+  triggerClassName,
+}: {
+  value: T;
+  options: readonly T[];
+  optionLabels: Record<T, string>;
+  onSelect: (value: T) => void;
+  disabled?: boolean;
+  triggerClassName?: string;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button variant="outline" size="sm" disabled={disabled} className={triggerClassName}>
+            {optionLabels[value]}
+            <ChevronDown size={14} />
+          </Button>
+        }
+      />
+      <DropdownMenuContent>
+        <DropdownMenuRadioGroup value={value} onValueChange={(v) => onSelect(v as T)}>
+          {options.map((option) => (
+            <DropdownMenuRadioItem key={option} value={option} closeOnClick>
+              {optionLabels[option]}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+// ─── Assignee picker ─────────────────────────────────────────────────────────
+
+const UNASSIGNED = "__unassigned__";
+
+function AssigneePicker({ ticket }: { ticket: TicketDetail }) {
+  const mutation = useTicketPatch(ticket.id);
+
+  const { data: agents } = useQuery({
+    queryKey: ["users", "assignable"],
+    queryFn: fetchAssignableUsers,
+  });
+
+  const options = [UNASSIGNED, ...(agents?.map((a) => a.id) ?? [])];
+  const optionLabels: Record<string, string> = { [UNASSIGNED]: "Unassigned" };
+  for (const agent of agents ?? []) optionLabels[agent.id] = agent.name;
+
+  return (
+    <RadioPicker
+      value={ticket.assignedTo?.id ?? UNASSIGNED}
+      options={options}
+      optionLabels={optionLabels}
+      disabled={mutation.isPending}
+      onSelect={(value) => mutation.mutate({ assignedToId: value === UNASSIGNED ? null : value })}
+    />
+  );
+}
+
+// ─── Status & category pickers ──────────────────────────────────────────────
+
+const statusOptions: readonly TicketStatus[] = ["OPEN", "RESOLVED", "CLOSED"];
+const statusLabels: Record<TicketStatus, string> = { OPEN: "Open", RESOLVED: "Resolved", CLOSED: "Closed" };
+const categoryOptions: readonly TicketCategory[] = ["GENERAL_QUESTION", "TECHNICAL_QUESTION", "REFUND_REQUEST"];
+
+function StatusPicker({ ticket }: { ticket: TicketDetail }) {
+  const mutation = useTicketPatch(ticket.id);
+  return (
+    <RadioPicker
+      value={ticket.status}
+      options={statusOptions}
+      optionLabels={statusLabels}
+      disabled={mutation.isPending}
+      triggerClassName={statusStyles[ticket.status]}
+      onSelect={(status) => mutation.mutate({ status })}
+    />
+  );
+}
+
+function CategoryPicker({ ticket }: { ticket: TicketDetail }) {
+  const mutation = useTicketPatch(ticket.id);
+  return (
+    <RadioPicker
+      value={ticket.category}
+      options={categoryOptions}
+      optionLabels={categoryLabels}
+      disabled={mutation.isPending}
+      onSelect={(category) => mutation.mutate({ category })}
+    />
+  );
+}
+
+// ─── Reply form ──────────────────────────────────────────────────────────────
+
+export function ReplyForm({ ticketId }: { ticketId: string }) {
+  const queryClient = useQueryClient();
+  const [body, setBody] = useState("");
+
+  const mutation = useMutation({
+    mutationFn: () => postReply(ticketId, body),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(["ticket", ticketId], updated);
+      setBody("");
+    },
+  });
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (body.trim()) mutation.mutate();
+      }}
+      className="mt-4 bg-white rounded-lg border border-slate-200 shadow-sm p-4"
+    >
+      <Textarea
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        placeholder="Write a reply…"
+        rows={4}
+        disabled={mutation.isPending}
+      />
+      {mutation.isError && (
+        <p className="mt-2 text-sm text-red-600">{mutation.error.message}</p>
+      )}
+      <div className="flex justify-end mt-3">
+        <Button type="submit" disabled={mutation.isPending || !body.trim()}>
+          {mutation.isPending ? "Sending…" : "Send Reply"}
+        </Button>
+      </div>
+    </form>
+  );
 }
 
 // ─── Ticket Detail Page ──────────────────────────────────────────────────────
@@ -72,9 +270,7 @@ export function TicketDetailPage() {
             <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-6 mb-6">
               <div className="flex items-start justify-between gap-4 mb-3">
                 <h1 className="text-xl font-bold text-slate-900">{ticket.subject}</h1>
-                <span className={`shrink-0 inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${statusStyles[ticket.status]}`}>
-                  {ticket.status}
-                </span>
+                <StatusPicker ticket={ticket} />
               </div>
 
               <dl className="grid grid-cols-2 gap-y-2 text-sm">
@@ -84,11 +280,15 @@ export function TicketDetailPage() {
                   {ticket.customerName && <span className="text-slate-400"> ({ticket.customerEmail})</span>}
                 </dd>
 
-                <dt className="text-slate-400">Category</dt>
-                <dd className="text-slate-700">{categoryLabels[ticket.category]}</dd>
+                <dt className="text-slate-400 self-center">Category</dt>
+                <dd>
+                  <CategoryPicker ticket={ticket} />
+                </dd>
 
-                <dt className="text-slate-400">Assigned To</dt>
-                <dd className="text-slate-700">{ticket.assignedTo?.name ?? "Unassigned"}</dd>
+                <dt className="text-slate-400 self-center">Assigned To</dt>
+                <dd>
+                  <AssigneePicker ticket={ticket} />
+                </dd>
 
                 <dt className="text-slate-400">Created</dt>
                 <dd className="text-slate-700">{formatDate(ticket.createdAt)}</dd>
@@ -120,6 +320,8 @@ export function TicketDetailPage() {
                 </div>
               ))}
             </div>
+
+            <ReplyForm ticketId={ticket.id} />
           </>
         )}
       </main>
