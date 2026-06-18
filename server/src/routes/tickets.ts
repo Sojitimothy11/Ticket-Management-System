@@ -210,17 +210,36 @@ router.post("/:id/polish-reply", requireAuth, async (req, res) => {
     return;
   }
 
+  const ticket = await prisma.ticket.findUnique({
+    where: { id: req.params.id },
+    select: { customerName: true, customerEmail: true },
+  });
+
+  if (!ticket) {
+    res.status(404).json({ error: "Ticket not found" });
+    return;
+  }
+
+  const customerName = ticket.customerName ?? ticket.customerEmail;
+
   try {
     const { text } = await generateText({
       model: openai("gpt-5-nano"),
       system:
         "You polish draft replies written by customer support agents. " +
-        "Improve grammar, clarity, and tone while keeping the meaning and length similar. " +
-        "Do not add greetings, signatures, or information that isn't in the draft. " +
+        "Improve grammar and clarity while keeping the meaning and length similar. " +
+        "Always sound professional and empathetic. " +
+        "Open the reply with a brief greeting addressed to the customer by name. " +
+        "Do not use dashes or hyphens as punctuation, and remove unnecessary whitespace. " +
+        "Do not add a signature or sign-off — that is appended separately. " +
         "Respond with only the revised reply text.",
-      prompt: draft,
+      prompt: `Customer name: ${customerName}\n\nDraft reply:\n${draft}`,
     });
-    res.json({ text: text.trim() });
+    const polished = text
+      .replace(/[ \t]+/g, " ")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+    res.json({ text: `${polished}\n\nBest regards,\n${req.user!.name}` });
   } catch {
     res.status(502).json({ error: "Failed to polish reply" });
   }
