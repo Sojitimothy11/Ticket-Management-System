@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ChevronDown } from "lucide-react";
+import { ArrowLeft, ChevronDown, Sparkles } from "lucide-react";
 import { Navbar } from "../components/Navbar";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
@@ -82,6 +82,18 @@ async function postReply(id: string, body: string): Promise<TicketDetail> {
   });
   if (!res.ok) throw new Error(`Failed to send reply (${res.status})`);
   return res.json();
+}
+
+async function polishReply(id: string, body: string): Promise<string> {
+  const res = await fetch(`${API}/api/tickets/${id}/polish-reply`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ body }),
+  });
+  if (!res.ok) throw new Error(`Failed to polish reply (${res.status})`);
+  const data = await res.json();
+  return data.text as string;
 }
 
 function useTicketPatch(ticketId: string) {
@@ -209,6 +221,13 @@ export function ReplyForm({ ticketId }: { ticketId: string }) {
     },
   });
 
+  const polishMutation = useMutation({
+    mutationFn: () => polishReply(ticketId, body),
+    onSuccess: (polished) => setBody(polished),
+  });
+
+  const busy = mutation.isPending || polishMutation.isPending;
+
   return (
     <form
       onSubmit={(e) => {
@@ -222,13 +241,25 @@ export function ReplyForm({ ticketId }: { ticketId: string }) {
         onChange={(e) => setBody(e.target.value)}
         placeholder="Write a reply…"
         rows={4}
-        disabled={mutation.isPending}
+        disabled={busy}
       />
+      {polishMutation.isError && (
+        <p className="mt-2 text-sm text-red-600">{polishMutation.error.message}</p>
+      )}
       {mutation.isError && (
         <p className="mt-2 text-sm text-red-600">{mutation.error.message}</p>
       )}
-      <div className="flex justify-end mt-3">
-        <Button type="submit" disabled={mutation.isPending || !body.trim()}>
+      <div className="flex justify-end gap-2 mt-3">
+        <Button
+          type="button"
+          variant="outline"
+          disabled={busy || !body.trim()}
+          onClick={() => polishMutation.mutate()}
+        >
+          <Sparkles size={14} />
+          {polishMutation.isPending ? "Polishing…" : "Polish"}
+        </Button>
+        <Button type="submit" disabled={busy || !body.trim()}>
           {mutation.isPending ? "Sending…" : "Send Reply"}
         </Button>
       </div>

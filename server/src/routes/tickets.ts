@@ -1,4 +1,6 @@
 import { Router } from "express";
+import { generateText } from "ai";
+import { openai } from "@ai-sdk/openai";
 import { TicketStatus, TicketCategory, type Prisma } from "@prisma/client";
 import prisma from "../lib/prisma";
 import { requireAuth } from "../middleware/requireAuth";
@@ -196,6 +198,31 @@ router.post("/:id/messages", requireAuth, async (req, res) => {
       return;
     }
     throw err;
+  }
+});
+
+router.post("/:id/polish-reply", requireAuth, async (req, res) => {
+  const { body } = req.body as { body?: string };
+  const draft = typeof body === "string" ? body.trim() : "";
+
+  if (!draft) {
+    res.status(400).json({ error: "Reply body is required" });
+    return;
+  }
+
+  try {
+    const { text } = await generateText({
+      model: openai("gpt-5-nano"),
+      system:
+        "You polish draft replies written by customer support agents. " +
+        "Improve grammar, clarity, and tone while keeping the meaning and length similar. " +
+        "Do not add greetings, signatures, or information that isn't in the draft. " +
+        "Respond with only the revised reply text.",
+      prompt: draft,
+    });
+    res.json({ text: text.trim() });
+  } catch {
+    res.status(502).json({ error: "Failed to polish reply" });
   }
 });
 
