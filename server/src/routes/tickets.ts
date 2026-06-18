@@ -24,6 +24,10 @@ function parseEnumList<T extends string>(value: unknown, allowed: readonly T[]):
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
 
+// Tickets are held in PROCESSING while the AI auto-resolve job is running and are never
+// shown in the list (filterable or otherwise) — only OPEN/RESOLVED/CLOSED are listable.
+const listableStatuses = Object.values(TicketStatus).filter((s) => s !== "PROCESSING");
+
 const ticketDetailSelect = {
   id: true,
   subject: true,
@@ -62,12 +66,12 @@ router.get("/", requireAuth, async (req, res) => {
   const buildOrderBy = sortableFields[sortBy ?? ""] ?? sortableFields.createdAt;
   const orderBy = buildOrderBy(order);
 
-  const statuses = parseEnumList(status, Object.values(TicketStatus));
+  const statuses = parseEnumList(status, listableStatuses);
   const categories = parseEnumList(category, Object.values(TicketCategory));
   const search = typeof q === "string" ? q.trim() : "";
 
   const where: Prisma.TicketWhereInput = {
-    ...(statuses.length > 0 && { status: { in: statuses } }),
+    status: statuses.length > 0 ? { in: statuses } : { not: "PROCESSING" },
     ...(categories.length > 0 && { category: { in: categories } }),
     ...(search && {
       OR: [

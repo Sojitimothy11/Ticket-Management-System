@@ -4,6 +4,7 @@ import prisma from "../lib/prisma";
 import { requireInboundEmailSecret } from "../middleware/requireInboundEmailSecret";
 import { parseFromHeader, extractTicketId, stripHtml } from "../lib/email";
 import { enqueueClassifyTicket } from "../lib/classifyTicket";
+import { enqueueResolveTicket } from "../lib/resolveTicket";
 
 const router = Router();
 
@@ -59,6 +60,7 @@ router.post("/inbound/:secret", requireInboundEmailSecret, upload.any(), async (
         body,
         customerEmail,
         customerName,
+        status: "PROCESSING",
         messages: { create: { body, isFromCustomer: true } },
       },
       include: { messages: true },
@@ -68,6 +70,12 @@ router.post("/inbound/:secret", requireInboundEmailSecret, upload.any(), async (
       await enqueueClassifyTicket(ticket.id, ticketSubject, body);
     } catch (err) {
       console.error(`Failed to enqueue classification for ticket ${ticket.id}:`, err);
+    }
+
+    try {
+      await enqueueResolveTicket(ticket.id, ticketSubject, body, customerName ?? customerEmail);
+    } catch (err) {
+      console.error(`Failed to enqueue auto-resolve for ticket ${ticket.id}:`, err);
     }
 
     res.status(200).json({ ok: true, ticketId: ticket.id, messageId: ticket.messages[0]?.id });
