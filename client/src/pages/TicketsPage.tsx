@@ -191,6 +191,7 @@ export function TicketsPage() {
   const { data, isPending, error } = useQuery({
     queryKey: ["tickets", sorting, sortedStatuses, sortedCategories, search, page],
     queryFn: () => fetchTickets(sorting, filters, page),
+    refetchInterval: 10_000,
   });
   const tickets = data?.tickets;
 

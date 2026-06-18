@@ -4,6 +4,7 @@ import { openai } from "@ai-sdk/openai";
 import { TicketStatus, TicketCategory, type Prisma } from "@prisma/client";
 import prisma from "../lib/prisma";
 import { requireAuth } from "../middleware/requireAuth";
+import { sendReplyEmail } from "../lib/sendEmail";
 
 const router = Router();
 
@@ -108,6 +109,89 @@ router.get("/", requireAuth, async (req, res) => {
   res.json({ tickets, total, page: currentPage, pageSize: take, totalPages: Math.max(1, Math.ceil(total / take)) });
 });
 
+const DAILY_VOLUME_DAYS = 14;
+
+router.get("/analytics", requireAuth, async (_req, res) => {
+  const now = new Date();
+  const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  since.setUTCDate(since.getUTCDate() - (DAILY_VOLUME_DAYS - 1));
+
+  const [totalTickets, openTickets, resolvedTickets, categoryGroups, statusGroups, recentTickets] =
+    await Promise.all([
+      prisma.ticket.count(),
+      prisma.ticket.count({ where: { status: "OPEN" } }),
+      prisma.ticket.findMany({
+        where: { status: "RESOLVED" },
+        select: { createdAt: true, resolvedAt: true, autoResolved: true },
+      }),
+      prisma.ticket.groupBy({
+        by: ["category"],
+        where: { status: { not: "PROCESSING" } },
+        _count: { _all: true },
+      }),
+      prisma.ticket.groupBy({
+        by: ["status"],
+        where: { status: { not: "PROCESSING" } },
+        _count: { _all: true },
+      }),
+      prisma.ticket.findMany({
+        where: { createdAt: { gte: since } },
+        select: { createdAt: true },
+      }),
+    ]);
+
+  const resolvedCount = resolvedTickets.length;
+  const aiResolvedCount = resolvedTickets.filter((t) => t.autoResolved).length;
+  const humanResolvedCount = resolvedCount - aiResolvedCount;
+  const aiResolvedPercent = resolvedCount > 0 ? Math.round((aiResolvedCount / resolvedCount) * 100) : 0;
+
+  const resolutionDurationsMs = resolvedTickets
+    .filter((t) => t.resolvedAt)
+    .map((t) => t.resolvedAt!.getTime() - t.createdAt.getTime());
+  const averageResolutionMinutes =
+    resolutionDurationsMs.length > 0
+      ? resolutionDurationsMs.reduce((sum, ms) => sum + ms, 0) / resolutionDurationsMs.length / 60000
+      : null;
+
+  const categoryCounts = new Map(categoryGroups.map((g) => [g.category, g._count._all]));
+  const categoryBreakdown = Object.values(TicketCategory).map((category) => ({
+    category,
+    count: categoryCounts.get(category) ?? 0,
+  }));
+
+  const statusCounts = new Map(statusGroups.map((g) => [g.status, g._count._all]));
+  const statusBreakdown = listableStatuses.map((status) => ({
+    status,
+    count: statusCounts.get(status) ?? 0,
+  }));
+
+  const dailyCounts = new Map<string, number>();
+  for (const { createdAt } of recentTickets) {
+    const day = createdAt.toISOString().slice(0, 10);
+    dailyCounts.set(day, (dailyCounts.get(day) ?? 0) + 1);
+  }
+  const dailyVolume = Array.from({ length: DAILY_VOLUME_DAYS }, (_, i) => {
+    const date = new Date(since);
+    date.setUTCDate(date.getUTCDate() + i);
+    const day = date.toISOString().slice(0, 10);
+    return { date: day, count: dailyCounts.get(day) ?? 0 };
+  });
+
+  res.json({
+    totalTickets,
+    openTickets,
+    resolvedTickets: resolvedCount,
+    aiResolvedCount,
+    humanResolvedCount,
+    aiResolvedPercent,
+    humanResolvedPercent: resolvedCount > 0 ? 100 - aiResolvedPercent : 0,
+    averageResolutionMinutes,
+    categoryBreakdown,
+    statusBreakdown,
+    dailyVolume,
+  });
+});
+
 router.get("/:id", requireAuth, async (req, res) => {
   const ticket = await prisma.ticket.findUnique({
     where: { id: req.params.id },
@@ -143,11 +227,15 @@ router.patch("/:id", requireAuth, async (req, res) => {
   }
 
   if (status !== undefined) {
-    if (!Object.values(TicketStatus).includes(status as TicketStatus)) {
+    if (!listableStatuses.includes(status as TicketStatus)) {
       res.status(400).json({ error: "Invalid status" });
       return;
     }
     data.status = status as TicketStatus;
+    if (status === "RESOLVED") {
+      data.resolvedAt = new Date();
+      data.autoResolved = false;
+    }
   }
 
   if (category !== undefined) {
@@ -194,6 +282,19 @@ router.post("/:id/messages", requireAuth, async (req, res) => {
       },
       select: ticketDetailSelect,
     });
+
+    try {
+      await sendReplyEmail({
+        ticketId: ticket.id,
+        subject: ticket.subject,
+        to: ticket.customerEmail,
+        text,
+        agentName: req.user!.name,
+      });
+    } catch (err) {
+      console.error(`Failed to send reply email for ticket ${ticket.id}:`, err);
+    }
+
     res.status(201).json(ticket);
   } catch (err: unknown) {
     const e = err as { code?: string };

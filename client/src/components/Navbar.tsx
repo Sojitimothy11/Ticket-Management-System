@@ -18,9 +18,9 @@ export function Navbar() {
   return (
     <nav className="flex items-center justify-between h-15 px-6 bg-slate-800 text-slate-50 shadow">
       <div className="flex items-center gap-6">
-        <span className="font-bold text-sm tracking-wide">
+        <Link to="/" className="font-bold text-sm tracking-wide hover:text-slate-200 transition-colors">
           Ticket Management System
-        </span>
+        </Link>
         {session && (
           <Link
             to="/tickets"

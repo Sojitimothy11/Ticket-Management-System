@@ -1,5 +1,6 @@
 import { Router } from "express";
 import multer from "multer";
+import Parse from "@sendgrid/inbound-mail-parser";
 import prisma from "../lib/prisma";
 import { requireInboundEmailSecret } from "../middleware/requireInboundEmailSecret";
 import { parseFromHeader, extractTicketId, stripHtml } from "../lib/email";
@@ -8,19 +9,24 @@ import { enqueueResolveTicket } from "../lib/resolveTicket";
 
 const router = Router();
 
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 25 * 1024 * 1024, files: 10 },
-});
+// Attachments are not supported — memory storage just lets multer parse the multipart
+// fields without writing anything to disk, and any file parts are discarded.
+const upload = multer({ storage: multer.memoryStorage() });
 
 router.post("/inbound/:secret", requireInboundEmailSecret, upload.any(), async (req, res) => {
-  const { to, from, subject, text, html } = req.body as {
-    to?: string;
-    from?: string;
-    subject?: string;
-    text?: string;
-    html?: string;
-  };
+  const parser = new Parse({ keys: ["to", "from", "subject", "text", "html"] }, { body: req.body });
+
+  // keyValues() reduces over only the keys present in the payload and throws if none are —
+  // guard so a malformed webhook call 400s instead of 500ing.
+  let parsed: { to?: string; from?: string; subject?: string; text?: string; html?: string };
+  try {
+    parsed = parser.keyValues();
+  } catch {
+    res.status(200).json({ ok: false, error: "Missing required fields" });
+    return;
+  }
+
+  const { to, from, subject, text, html } = parsed;
 
   if (!from || !to) {
     res.status(200).json({ ok: false, error: "Missing required fields" });

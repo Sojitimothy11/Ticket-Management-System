@@ -35,28 +35,37 @@ export async function startResolveTicketWorker(): Promise<void> {
   await boss.createQueue(RESOLVE_TICKET_QUEUE);
   await boss.work<ResolveTicketJob>(RESOLVE_TICKET_QUEUE, async ([job]) => {
     const { ticketId, subject, body, customerName } = job.data;
-    const knowledgeBase = loadKnowledgeBase();
 
-    const { object } = await generateObject({
-      model: openai("gpt-5-nano"),
-      schema: ResolutionSchema,
-      system:
-        "You are a customer support assistant deciding whether a new ticket can be fully resolved " +
-        "right now using only the knowledge base below, with no human agent involved. " +
-        "Only set resolved to true if the knowledge base directly and confidently answers the customer's " +
-        "question and none of the escalation rules described in the knowledge base apply. " +
-        "When resolved is true, write the reply to send the customer in the answer field: sound professional " +
-        "and empathetic, open with a greeting addressed to the customer by name, and do not use dashes or " +
-        "hyphens as punctuation. When resolved is false, leave answer as an empty string.\n\n" +
-        `Knowledge base:\n${knowledgeBase}`,
-      prompt: `Customer name: ${customerName}\n\nSubject: ${subject}\n\n${body}`,
-    });
+    let object: z.infer<typeof ResolutionSchema>;
+    try {
+      const knowledgeBase = loadKnowledgeBase();
+      ({ object } = await generateObject({
+        model: openai("gpt-5-nano"),
+        schema: ResolutionSchema,
+        system:
+          "You are a customer support assistant deciding whether a new ticket can be fully resolved " +
+          "right now using only the knowledge base below, with no human agent involved. " +
+          "Only set resolved to true if the knowledge base directly and confidently answers the customer's " +
+          "question and none of the escalation rules described in the knowledge base apply. " +
+          "When resolved is true, write the reply to send the customer in the answer field: sound professional " +
+          "and empathetic, open with a greeting addressed to the customer by name, and do not use dashes or " +
+          "hyphens as punctuation. When resolved is false, leave answer as an empty string.\n\n" +
+          `Knowledge base:\n${knowledgeBase}`,
+        prompt: `Customer name: ${customerName}\n\nSubject: ${subject}\n\n${body}`,
+      }));
+    } catch (err) {
+      console.error(`Failed to auto-resolve ticket ${ticketId}:`, err);
+      await prisma.ticket.update({ where: { id: ticketId }, data: { status: "OPEN" } });
+      return;
+    }
 
     if (object.resolved && object.answer.trim()) {
       await prisma.ticket.update({
         where: { id: ticketId },
         data: {
           status: "RESOLVED",
+          resolvedAt: new Date(),
+          autoResolved: true,
           messages: { create: { body: object.answer.trim(), isFromCustomer: false } },
         },
       });
