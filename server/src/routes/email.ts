@@ -3,6 +3,7 @@ import multer from "multer";
 import prisma from "../lib/prisma";
 import { requireInboundEmailSecret } from "../middleware/requireInboundEmailSecret";
 import { parseFromHeader, extractTicketId, stripHtml } from "../lib/email";
+import { enqueueClassifyTicket } from "../lib/classifyTicket";
 
 const router = Router();
 
@@ -62,6 +63,13 @@ router.post("/inbound/:secret", requireInboundEmailSecret, upload.any(), async (
       },
       include: { messages: true },
     });
+
+    try {
+      await enqueueClassifyTicket(ticket.id, ticketSubject, body);
+    } catch (err) {
+      console.error(`Failed to enqueue classification for ticket ${ticket.id}:`, err);
+    }
+
     res.status(200).json({ ok: true, ticketId: ticket.id, messageId: ticket.messages[0]?.id });
   } catch (err) {
     console.error("Failed to process inbound email:", err);

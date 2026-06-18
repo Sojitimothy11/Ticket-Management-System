@@ -3,6 +3,8 @@ import cors from "cors";
 import helmet from "helmet";
 import { toNodeHandler } from "better-auth/node";
 import { auth } from "./lib/auth";
+import boss from "./lib/queue";
+import { startClassifyTicketWorker } from "./lib/classifyTicket";
 import usersRouter from "./routes/users";
 import emailRouter from "./routes/email";
 import ticketsRouter from "./routes/tickets";
@@ -26,6 +28,9 @@ app.use("/api/users", usersRouter);
 app.use("/api/email", emailRouter);
 app.use("/api/tickets", ticketsRouter);
 
+
+await boss.start();
+await startClassifyTicketWorker();
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
