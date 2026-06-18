@@ -245,4 +245,46 @@ router.post("/:id/polish-reply", requireAuth, async (req, res) => {
   }
 });
 
+router.post("/:id/summarize", requireAuth, async (req, res) => {
+  const ticket = await prisma.ticket.findUnique({
+    where: { id: req.params.id },
+    select: {
+      subject: true,
+      body: true,
+      customerName: true,
+      customerEmail: true,
+      messages: {
+        orderBy: { createdAt: "asc" },
+        select: { body: true, isFromCustomer: true, user: { select: { name: true } } },
+      },
+    },
+  });
+
+  if (!ticket) {
+    res.status(404).json({ error: "Ticket not found" });
+    return;
+  }
+
+  const customerName = ticket.customerName ?? ticket.customerEmail;
+  const conversation = [
+    `${customerName}: ${ticket.body}`,
+    ...ticket.messages.map((m) => `${m.isFromCustomer ? customerName : m.user?.name ?? "Agent"}: ${m.body}`),
+  ].join("\n\n");
+
+  try {
+    const { text } = await generateText({
+      model: openai("gpt-5-nano"),
+      system:
+        "You summarize customer support tickets for agents picking up the conversation. " +
+        "Write a concise summary covering what the customer needs and the current state of the conversation. " +
+        "Use plain prose, not bullet points. Do not use dashes or hyphens as punctuation. " +
+        "Respond with only the summary text.",
+      prompt: `Subject: ${ticket.subject}\n\n${conversation}`,
+    });
+    res.json({ summary: text.trim() });
+  } catch {
+    res.status(502).json({ error: "Failed to summarize ticket" });
+  }
+});
+
 export default router;

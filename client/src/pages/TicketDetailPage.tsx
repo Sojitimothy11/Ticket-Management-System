@@ -96,6 +96,16 @@ async function polishReply(id: string, body: string): Promise<string> {
   return data.text as string;
 }
 
+async function summarizeTicket(id: string): Promise<string> {
+  const res = await fetch(`${API}/api/tickets/${id}/summarize`, {
+    method: "POST",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(`Failed to summarize ticket (${res.status})`);
+  const data = await res.json();
+  return data.summary as string;
+}
+
 function useTicketPatch(ticketId: string) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -204,6 +214,31 @@ function CategoryPicker({ ticket }: { ticket: TicketDetail }) {
       disabled={mutation.isPending}
       onSelect={(category) => mutation.mutate({ category })}
     />
+  );
+}
+
+// ─── Ticket summary ──────────────────────────────────────────────────────────
+
+export function TicketSummary({ ticketId }: { ticketId: string }) {
+  const mutation = useMutation({
+    mutationFn: () => summarizeTicket(ticketId),
+  });
+
+  return (
+    <div className="mt-4">
+      <Button type="button" variant="outline" disabled={mutation.isPending} onClick={() => mutation.mutate()}>
+        <Sparkles size={14} />
+        {mutation.isPending ? "Summarizing…" : "Summarize"}
+      </Button>
+
+      {mutation.isError && <p className="mt-2 text-sm text-red-600">{mutation.error.message}</p>}
+
+      {mutation.isSuccess && (
+        <div className="mt-3 bg-blue-50 border border-blue-100 rounded-lg p-4 text-sm text-slate-700 whitespace-pre-wrap">
+          {mutation.data}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -351,6 +386,8 @@ export function TicketDetailPage() {
                 </div>
               ))}
             </div>
+
+            <TicketSummary ticketId={ticket.id} />
 
             <ReplyForm ticketId={ticket.id} />
           </>

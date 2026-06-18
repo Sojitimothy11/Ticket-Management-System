@@ -286,4 +286,31 @@ test.describe("Tickets list", () => {
     await expect(messages).toHaveCount(2);
     await expect(messages.nth(1)).toContainText("Can you tell me which file format you're exporting to?");
   });
+
+  test("disables Send Reply until the draft has non-whitespace text, with no validation error shown", async ({
+    authenticatedPage,
+    db,
+  }) => {
+    await db.query(`
+      INSERT INTO "Ticket" (id, subject, body, "customerEmail", "customerName", "createdAt", "updatedAt")
+      VALUES ('ticket-reply-2', 'Need help with login', 'Cannot log in.', 'gail@example.com', 'Gail', '2026-06-10T10:00:00Z', '2026-06-10T10:00:00Z')
+    `);
+
+    await authenticatedPage.goto("/tickets/ticket-reply-2");
+
+    const replyTextarea = authenticatedPage.getByPlaceholder("Write a reply…");
+    const sendButton = authenticatedPage.getByRole("button", { name: "Send Reply" });
+
+    await expect(sendButton).toBeDisabled();
+
+    await replyTextarea.fill("   ");
+    await expect(sendButton).toBeDisabled();
+
+    await replyTextarea.fill("Thanks for reaching out.");
+    await expect(sendButton).toBeEnabled();
+
+    await replyTextarea.fill("   ");
+    await expect(sendButton).toBeDisabled();
+    await expect(authenticatedPage.getByText(/required/i)).not.toBeVisible();
+  });
 });
