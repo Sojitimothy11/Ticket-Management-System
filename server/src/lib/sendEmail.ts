@@ -15,6 +15,7 @@ export async function sendReplyEmail(opts: {
   to: string;
   text: string;
   agentName: string;
+  attachments?: { filename: string; contentType: string | null; content: Buffer }[];
 }): Promise<void> {
   const fromAddress = process.env.SUPPORT_EMAIL_ADDRESS;
   if (!apiKey || !fromAddress) {
@@ -27,5 +28,11 @@ export async function sendReplyEmail(opts: {
     from: { email: fromAddress, name: opts.agentName },
     subject: buildReplySubject(opts.subject, opts.ticketId),
     text: opts.text,
+    attachments: opts.attachments?.map((a) => ({
+      filename: a.filename,
+      type: a.contentType ?? undefined,
+      content: a.content.toString("base64"),
+      disposition: "attachment",
+    })),
   });
 }

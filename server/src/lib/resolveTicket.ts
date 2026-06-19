@@ -5,6 +5,7 @@ import { openai } from "@ai-sdk/openai";
 import { z } from "zod";
 import prisma from "./prisma";
 import boss from "./queue";
+import { sendReplyEmail } from "./sendEmail";
 
 export const RESOLVE_TICKET_QUEUE = "resolve-ticket";
 
@@ -60,15 +61,29 @@ export async function startResolveTicketWorker(): Promise<void> {
     }
 
     if (object.resolved && object.answer.trim()) {
-      await prisma.ticket.update({
+      const reply = object.answer.trim();
+      const ticket = await prisma.ticket.update({
         where: { id: ticketId },
         data: {
           status: "RESOLVED",
           resolvedAt: new Date(),
           autoResolved: true,
-          messages: { create: { body: object.answer.trim(), isFromCustomer: false } },
+          messages: { create: { body: reply, isFromCustomer: false } },
         },
+        select: { customerEmail: true },
       });
+
+      try {
+        await sendReplyEmail({
+          ticketId,
+          subject,
+          to: ticket.customerEmail,
+          text: reply,
+          agentName: "Support Team",
+        });
+      } catch (err) {
+        console.error(`Failed to send auto-resolve reply email for ticket ${ticketId}:`, err);
+      }
     } else {
       await prisma.ticket.update({ where: { id: ticketId }, data: { status: "OPEN" } });
     }

@@ -42,6 +42,7 @@ model User {
   accounts        Account[]
   assignedTickets Ticket[]  @relation("AssignedTo")
   messages        Message[]
+  ticketPriorities TicketPriority[]
 
   @@map("user")
 }
@@ -112,10 +113,26 @@ model Ticket {
   assignedTo    User?          @relation("AssignedTo", fields: [assignedToId], references: [id])
   resolvedAt    DateTime?
   autoResolved  Boolean        @default(false)
+  deletedAt     DateTime?
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
 
-  messages Message[]
+  messages   Message[]
+  priorities TicketPriority[]
+}
+
+// Per-user "this ticket is priority for me" marker. Deliberately NOT a field on Ticket —
+// it must stay private to whichever user created it and never become a shared/global state.
+model TicketPriority {
+  id        String   @id @default(cuid())
+  userId    String
+  ticketId  String
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, ticketId])
 }
 
 model Message {
@@ -127,4 +144,17 @@ model Message {
   userId     String?
   user       User?    @relation(fields: [userId], references: [id])
   createdAt  DateTime @default(now())
+
+  attachments Attachment[]
+}
+
+model Attachment {
+  id          String   @id @default(cuid())
+  filename    String
+  contentType String?
+  size        Int
+  content     Bytes
+  messageId   String
+  message     Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
 }

@@ -6,6 +6,7 @@ import { HomePage } from "./pages/HomePage";
 import { UsersPage } from "./pages/UsersPage";
 import { TicketsPage } from "./pages/TicketsPage";
 import { TicketDetailPage } from "./pages/TicketDetailPage";
+import { RecycleBinPage } from "./pages/RecycleBinPage";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { data: session, isPending } = authClient.useSession();
@@ -52,6 +53,14 @@ function App() {
         element={
           <ProtectedRoute>
             <TicketDetailPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/recycle-bin"
+        element={
+          <ProtectedRoute>
+            <RecycleBinPage />
           </ProtectedRoute>
         }
       />

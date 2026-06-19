@@ -1,19 +1,28 @@
 import { Router } from "express";
-import multer from "multer";
+import type { Request, Response, NextFunction } from "express";
 import Parse from "@sendgrid/inbound-mail-parser";
 import prisma from "../lib/prisma";
 import { requireInboundEmailSecret } from "../middleware/requireInboundEmailSecret";
 import { parseFromHeader, extractTicketId, stripHtml } from "../lib/email";
 import { enqueueClassifyTicket } from "../lib/classifyTicket";
 import { enqueueResolveTicket } from "../lib/resolveTicket";
+import { attachmentUpload, filesToAttachmentData } from "../lib/attachments";
 
 const router = Router();
 
-// Attachments are not supported — memory storage just lets multer parse the multipart
-// fields without writing anything to disk, and any file parts are discarded.
-const upload = multer({ storage: multer.memoryStorage() });
+// SendGrid retries the webhook on non-2xx, so a too-large/too-many-files attachment
+// shouldn't fail the whole request — just drop the attachments and keep the email text.
+function uploadAttachmentsOrSkip(req: Request, res: Response, next: NextFunction) {
+  attachmentUpload.any()(req, res, (err: unknown) => {
+    if (err) {
+      console.error("Inbound email attachment upload error (dropping attachments):", err);
+      req.files = [];
+    }
+    next();
+  });
+}
 
-router.post("/inbound/:secret", requireInboundEmailSecret, upload.any(), async (req, res) => {
+router.post("/inbound/:secret", requireInboundEmailSecret, uploadAttachmentsOrSkip, async (req, res) => {
   const parser = new Parse({ keys: ["to", "from", "subject", "text", "html"] }, { body: req.body });
 
   // keyValues() reduces over only the keys present in the payload and throws if none are —
@@ -42,6 +51,7 @@ router.post("/inbound/:secret", requireInboundEmailSecret, upload.any(), async (
   const { name: customerName, email: customerEmail } = parseFromHeader(from);
   const body = text?.trim() || (html ? stripHtml(html) : "") || "(no content)";
   const ticketSubject = subject?.trim() || "(no subject)";
+  const files = filesToAttachmentData((req.files as Express.Multer.File[]) ?? []);
 
   try {
     const existingTicketId = extractTicketId(ticketSubject);
@@ -51,7 +61,12 @@ router.post("/inbound/:secret", requireInboundEmailSecret, upload.any(), async (
 
     if (existingTicket) {
       const message = await prisma.message.create({
-        data: { body, isFromCustomer: true, ticketId: existingTicket.id },
+        data: {
+          body,
+          isFromCustomer: true,
+          ticketId: existingTicket.id,
+          ...(files.length > 0 && { attachments: { create: files } }),
+        },
       });
       if (existingTicket.status === "CLOSED") {
         await prisma.ticket.update({ where: { id: existingTicket.id }, data: { status: "OPEN" } });
@@ -67,7 +82,13 @@ router.post("/inbound/:secret", requireInboundEmailSecret, upload.any(), async (
         customerEmail,
         customerName,
         status: "PROCESSING",
-        messages: { create: { body, isFromCustomer: true } },
+        messages: {
+          create: {
+            body,
+            isFromCustomer: true,
+            ...(files.length > 0 && { attachments: { create: files } }),
+          },
+        },
       },
       include: { messages: true },
     });

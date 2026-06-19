@@ -67,16 +67,16 @@ async function updateUser(id: string, body: { name: string; email: string; role:
 function Field({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-sm font-medium text-slate-700 mb-1.5">{label}</label>
+      <label className="block text-sm font-medium text-foreground/80 mb-1.5">{label}</label>
       {children}
-      {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
+      {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
     </div>
   );
 }
 
 function inputCls(hasError: boolean) {
   return `w-full px-3 py-2 border rounded-md text-sm outline-none focus:ring-2 focus:border-transparent ${
-    hasError ? "border-red-400 focus:ring-red-400" : "border-slate-300 focus:ring-blue-500"
+    hasError ? "border-destructive/50 focus:ring-destructive/40" : "border-input focus:ring-harbor"
   }`;
 }
 
@@ -120,10 +120,10 @@ function CreateUserModal({ onClose }: { onClose: () => void }) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
       onMouseDown={(e) => { if (e.target === backdropRef.current) onClose(); }}
     >
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
+      <div className="bg-card rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-semibold text-slate-900">Create User</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors text-xl leading-none cursor-pointer" aria-label="Close">×</button>
+          <h2 className="font-heading text-lg font-semibold text-foreground">Create User</h2>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors text-xl leading-none cursor-pointer" aria-label="Close">×</button>
         </div>
 
         <form onSubmit={handleSubmit((data) => mutation.mutate(data))} className="flex flex-col gap-4">
@@ -140,23 +140,23 @@ function CreateUserModal({ onClose }: { onClose: () => void }) {
           </Field>
 
           <Field label="Role">
-            <select {...register("role")} className={inputCls(false) + " bg-white"}>
+            <select {...register("role")} className={inputCls(false) + " bg-card"}>
               <option value="AGENT">Agent</option>
               <option value="ADMIN">Admin</option>
             </select>
           </Field>
 
           {mutation.isError && (
-            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+            <p className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md px-3 py-2">
               {mutation.error.message}
             </p>
           )}
 
           <div className="flex justify-end gap-3 mt-1">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors cursor-pointer">
+            <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-foreground/80 bg-muted hover:bg-muted/70 rounded-md transition-colors cursor-pointer">
               Cancel
             </button>
-            <button type="submit" disabled={mutation.isPending} className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed rounded-md transition-colors cursor-pointer">
+            <button type="submit" disabled={mutation.isPending} className="px-4 py-2 text-sm font-semibold text-white bg-primary hover:bg-primary/85 disabled:bg-primary/40 disabled:cursor-not-allowed rounded-md transition-colors cursor-pointer">
               {mutation.isPending ? "Creating…" : "Create User"}
             </button>
           </div>
@@ -214,10 +214,10 @@ function EditUserModal({ user, onClose }: { user: User; onClose: () => void }) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
       onMouseDown={(e) => { if (e.target === backdropRef.current) onClose(); }}
     >
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
+      <div className="bg-card rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-semibold text-slate-900">Edit User</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors text-xl leading-none cursor-pointer" aria-label="Close">×</button>
+          <h2 className="font-heading text-lg font-semibold text-foreground">Edit User</h2>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors text-xl leading-none cursor-pointer" aria-label="Close">×</button>
         </div>
 
         <form onSubmit={handleSubmit((data) => mutation.mutate(data))} className="flex flex-col gap-4">
@@ -234,23 +234,23 @@ function EditUserModal({ user, onClose }: { user: User; onClose: () => void }) {
           </Field>
 
           <Field label="Role">
-            <select {...register("role")} className={inputCls(false) + " bg-white"}>
+            <select {...register("role")} className={inputCls(false) + " bg-card"}>
               <option value="AGENT">Agent</option>
               <option value="ADMIN">Admin</option>
             </select>
           </Field>
 
           {mutation.isError && (
-            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+            <p className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md px-3 py-2">
               {mutation.error.message}
             </p>
           )}
 
           <div className="flex justify-end gap-3 mt-1">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors cursor-pointer">
+            <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-foreground/80 bg-muted hover:bg-muted/70 rounded-md transition-colors cursor-pointer">
               Cancel
             </button>
-            <button type="submit" disabled={mutation.isPending} className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed rounded-md transition-colors cursor-pointer">
+            <button type="submit" disabled={mutation.isPending} className="px-4 py-2 text-sm font-semibold text-white bg-primary hover:bg-primary/85 disabled:bg-primary/40 disabled:cursor-not-allowed rounded-md transition-colors cursor-pointer">
               {mutation.isPending ? "Saving…" : "Save Changes"}
             </button>
           </div>
@@ -286,21 +286,21 @@ function DeleteConfirmModal({ user, onClose }: { user: User; onClose: () => void
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
       onMouseDown={(e) => { if (e.target === backdropRef.current) onClose(); }}
     >
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-sm mx-4 p-6">
+      <div className="bg-card rounded-xl shadow-xl w-full max-w-sm mx-4 p-6">
         <div className="flex items-center gap-3 mb-3">
-          <div className="flex items-center justify-center w-10 h-10 rounded-full bg-red-100 shrink-0">
-            <Trash2 size={18} className="text-red-600" />
+          <div className="flex items-center justify-center w-10 h-10 rounded-full bg-destructive/10 shrink-0">
+            <Trash2 size={18} className="text-destructive" />
           </div>
-          <h2 className="text-lg font-semibold text-slate-900">Delete User</h2>
+          <h2 className="font-heading text-lg font-semibold text-foreground">Delete User</h2>
         </div>
 
-        <p className="text-sm text-slate-600 mb-1">
-          Are you sure you want to delete <span className="font-medium text-slate-900">{user.name}</span>?
+        <p className="text-sm text-muted-foreground mb-1">
+          Are you sure you want to delete <span className="font-medium text-foreground">{user.name}</span>?
         </p>
-        <p className="text-sm text-slate-400 mb-6">This action can be undone by an administrator.</p>
+        <p className="text-sm text-muted-foreground mb-6">This action can be undone by an administrator.</p>
 
         {mutation.isError && (
-          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2 mb-4">
+          <p className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md px-3 py-2 mb-4">
             {mutation.error.message}
           </p>
         )}
@@ -310,7 +310,7 @@ function DeleteConfirmModal({ user, onClose }: { user: User; onClose: () => void
             type="button"
             onClick={onClose}
             disabled={mutation.isPending}
-            className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
+            className="px-4 py-2 text-sm font-medium text-foreground/80 bg-muted hover:bg-muted/70 disabled:opacity-50 rounded-md transition-colors cursor-pointer"
           >
             Cancel
           </button>
@@ -318,7 +318,7 @@ function DeleteConfirmModal({ user, onClose }: { user: User; onClose: () => void
             type="button"
             onClick={() => mutation.mutate()}
             disabled={mutation.isPending}
-            className="px-4 py-2 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 disabled:bg-red-300 disabled:cursor-not-allowed rounded-md transition-colors cursor-pointer"
+            className="px-4 py-2 text-sm font-semibold text-white bg-destructive hover:bg-destructive/85 disabled:bg-destructive/40 disabled:cursor-not-allowed rounded-md transition-colors cursor-pointer"
           >
             {mutation.isPending ? "Deleting…" : "Delete"}
           </button>
@@ -341,70 +341,70 @@ export function UsersPage() {
   });
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-background">
       <Navbar />
       <main className="px-6 py-10">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold text-slate-900">Users</h1>
+          <h1 className="font-heading text-2xl font-semibold text-foreground">Users</h1>
           <button
             onClick={() => setCreateOpen(true)}
-            className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors cursor-pointer"
+            className="px-4 py-2 text-sm font-semibold text-white bg-primary hover:bg-primary/85 rounded-md transition-colors cursor-pointer"
           >
             Create User
           </button>
         </div>
 
-        {isPending && <p className="text-slate-500">Loading…</p>}
+        {isPending && <p className="text-muted-foreground">Loading…</p>}
 
         {error && (
-          <p className="text-red-600 bg-red-50 border border-red-200 rounded-md px-4 py-3 text-sm">
+          <p className="text-destructive bg-destructive/10 border border-destructive/20 rounded-md px-4 py-3 text-sm">
             {error.message}
           </p>
         )}
 
         {users && (
-          <div className="rounded-lg border border-slate-200 overflow-hidden bg-white shadow-sm">
+          <div className="rounded-lg border border-border overflow-x-auto bg-card shadow-sm">
             <table className="w-full text-sm">
-              <thead className="bg-slate-50 border-b border-slate-200">
+              <thead className="bg-muted border-b border-border">
                 <tr>
-                  <th className="text-left px-4 py-3 font-medium text-slate-600">Name</th>
-                  <th className="text-left px-4 py-3 font-medium text-slate-600">Email</th>
-                  <th className="text-left px-4 py-3 font-medium text-slate-600">Role</th>
-                  <th className="text-left px-4 py-3 font-medium text-slate-600">Verified</th>
-                  <th className="text-left px-4 py-3 font-medium text-slate-600">Member Since</th>
+                  <th className="text-left px-4 py-3 font-mono text-xs font-medium text-muted-foreground uppercase tracking-wide">Name</th>
+                  <th className="text-left px-4 py-3 font-mono text-xs font-medium text-muted-foreground uppercase tracking-wide">Email</th>
+                  <th className="text-left px-4 py-3 font-mono text-xs font-medium text-muted-foreground uppercase tracking-wide">Role</th>
+                  <th className="text-left px-4 py-3 font-mono text-xs font-medium text-muted-foreground uppercase tracking-wide">Verified</th>
+                  <th className="text-left px-4 py-3 font-mono text-xs font-medium text-muted-foreground uppercase tracking-wide">Member Since</th>
                   <th className="px-4 py-3" />
                 </tr>
               </thead>
               <tbody>
                 {users.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
+                    <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
                       No users found.
                     </td>
                   </tr>
                 ) : (
                   users.map((user) => (
-                    <tr key={user.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
-                      <td className="px-4 py-3 font-medium text-slate-900">{user.name}</td>
-                      <td className="px-4 py-3 text-slate-600">{user.email}</td>
+                    <tr key={user.id} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
+                      <td className="px-4 py-3 font-medium text-foreground">{user.name}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{user.email}</td>
                       <td className="px-4 py-3">
-                        <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${user.role === "ADMIN" ? "bg-orange-100 text-orange-700" : "bg-blue-100 text-blue-700"}`}>
+                        <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${user.role === "ADMIN" ? "bg-signal/10 text-signal" : "bg-harbor/10 text-harbor"}`}>
                           {user.role}
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${user.emailVerified ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-500"}`}>
+                        <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${user.emailVerified ? "bg-buoy/10 text-buoy" : "bg-muted text-muted-foreground"}`}>
                           {user.emailVerified ? "Verified" : "Unverified"}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-slate-500">
+                      <td className="px-4 py-3 font-mono text-xs text-muted-foreground tabular-nums">
                         {new Date(user.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">
                           <button
                             onClick={() => setEditingUser(user)}
-                            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded transition-colors cursor-pointer"
+                            className="p-1.5 text-muted-foreground hover:text-foreground/80 hover:bg-muted rounded transition-colors cursor-pointer"
                             aria-label={`Edit ${user.name}`}
                           >
                             <Pencil size={14} />
@@ -412,7 +412,7 @@ export function UsersPage() {
                           {user.role !== "ADMIN" && (
                             <button
                               onClick={() => setDeletingUser(user)}
-                              className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                              className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-colors cursor-pointer"
                               aria-label={`Delete ${user.name}`}
                             >
                               <Trash2 size={14} />

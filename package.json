@@ -1,5 +1,9 @@
 {
   "name": "ticket-management-system",
   "private": true,
-  "workspaces": ["client", "server", "e2e"]
+  "workspaces": ["client", "server", "e2e"],
+  "scripts": {
+    "build": "cd client && bun run build && cd ../server && bunx prisma generate",
+    "start": "cd server && bunx prisma migrate deploy && bun run start"
+  }
 }

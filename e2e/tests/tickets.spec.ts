@@ -1,4 +1,4 @@
-import { test, expect, TEST_USER } from "../fixtures";
+import { test, expect, TEST_USER, TEST_API_URL } from "../fixtures";
 
 test.describe("Tickets list", () => {
   test("lists tickets sorted newest first", async ({ authenticatedPage, db }) => {
@@ -183,6 +183,8 @@ test.describe("Tickets list", () => {
   });
 
   test("assigning a ticket to an agent persists and can be reverted to unassigned", async ({ authenticatedPage, db }) => {
+    // Assignment is admin-only — promote the signed-in test user so the Assigned To picker renders.
+    await db.query(`UPDATE "user" SET role = 'ADMIN' WHERE email = $1`, [TEST_USER.email]);
     await db.query(`
       INSERT INTO "user" (id, name, email, "emailVerified", "createdAt", "updatedAt", role)
       VALUES ('agent-2', 'Priya Agent', 'priya@example.com', true, now(), now(), 'AGENT')
@@ -287,6 +289,48 @@ test.describe("Tickets list", () => {
     await expect(messages.nth(1)).toContainText("Can you tell me which file format you're exporting to?");
   });
 
+  test("attaching a file to a reply uploads it and shows a working download link", async ({
+    authenticatedPage,
+    db,
+  }) => {
+    await db.query(`
+      INSERT INTO "Ticket" (id, subject, body, "customerEmail", "customerName", "createdAt", "updatedAt")
+      VALUES ('ticket-attach-1', 'Need a screenshot reviewed', 'See attached.', 'hank@example.com', 'Hank', '2026-06-10T10:00:00Z', '2026-06-10T10:00:00Z')
+    `);
+
+    await authenticatedPage.goto("/tickets/ticket-attach-1");
+
+    await authenticatedPage.getByPlaceholder("Write a reply…").fill("Here's the file you asked about.");
+    await authenticatedPage.getByTestId("reply-file-input").setInputFiles({
+      name: "notes.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("hello from the test suite"),
+    });
+    await expect(authenticatedPage.getByText("notes.txt")).toBeVisible();
+
+    const request = authenticatedPage.waitForRequest(
+      (req) => req.method() === "POST" && req.url().includes("/api/tickets/ticket-attach-1/messages")
+    );
+    await authenticatedPage.getByRole("button", { name: "Send Reply" }).click();
+    await request;
+
+    const messages = authenticatedPage.getByTestId("message");
+    await expect(messages).toHaveCount(1);
+
+    const downloadLink = messages.nth(0).getByRole("link", { name: /notes\.txt/ });
+    await expect(downloadLink).toBeVisible();
+    const href = await downloadLink.getAttribute("href");
+    expect(href).toContain("/api/tickets/attachments/");
+
+    const downloadRes = await authenticatedPage.request.get(href!);
+    expect(downloadRes.ok()).toBeTruthy();
+    expect(await downloadRes.text()).toBe("hello from the test suite");
+
+    // Persists across reload.
+    await authenticatedPage.reload();
+    await expect(messages.nth(0).getByRole("link", { name: /notes\.txt/ })).toBeVisible();
+  });
+
   test("disables Send Reply until the draft has non-whitespace text, with no validation error shown", async ({
     authenticatedPage,
     db,
@@ -313,4 +357,216 @@ test.describe("Tickets list", () => {
     await expect(sendButton).toBeDisabled();
     await expect(authenticatedPage.getByText(/required/i)).not.toBeVisible();
   });
+});
+
+test.describe("Ticket selection, My Priority, and soft delete", () => {
+  test("selecting a single row shows the bulk action bar and an indeterminate header checkbox", async ({
+    authenticatedPage,
+    db,
+  }) => {
+    await db.query(`
+      INSERT INTO "Ticket" (id, subject, body, "customerEmail", "customerName", "createdAt", "updatedAt")
+      VALUES
+        ('ticket-a', 'Ticket A', 'first', 'a@example.com', 'A', '2026-06-10T10:00:00Z', '2026-06-10T10:00:00Z'),
+        ('ticket-b', 'Ticket B', 'second', 'b@example.com', 'B', '2026-06-11T10:00:00Z', '2026-06-11T10:00:00Z')
+    `);
+
+    await authenticatedPage.goto("/tickets");
+    await expect(authenticatedPage.getByRole("toolbar", { name: "Bulk ticket actions" })).toHaveCount(0);
+
+    await authenticatedPage.getByRole("checkbox", { name: "Select ticket: Ticket A" }).click();
+
+    await expect(authenticatedPage.getByText("1 ticket selected")).toBeVisible();
+    await expect(
+      authenticatedPage.getByRole("checkbox", { name: "Select all visible tickets" })
+    ).toBeChecked({ indeterminate: true });
+  });
+
+  test("the select-all checkbox selects every visible ticket and reflects full/partial/empty state", async ({
+    authenticatedPage,
+    db,
+  }) => {
+    await db.query(`
+      INSERT INTO "Ticket" (id, subject, body, "customerEmail", "customerName", "createdAt", "updatedAt")
+      VALUES
+        ('ticket-a', 'Ticket A', 'first', 'a@example.com', 'A', '2026-06-10T10:00:00Z', '2026-06-10T10:00:00Z'),
+        ('ticket-b', 'Ticket B', 'second', 'b@example.com', 'B', '2026-06-11T10:00:00Z', '2026-06-11T10:00:00Z')
+    `);
+
+    await authenticatedPage.goto("/tickets");
+    const selectAll = authenticatedPage.getByRole("checkbox", { name: "Select all visible tickets" });
+
+    await selectAll.click();
+    await expect(selectAll).toBeChecked();
+    await expect(authenticatedPage.getByText("2 tickets selected")).toBeVisible();
+
+    // Unchecking one row drops the header checkbox back to indeterminate.
+    await authenticatedPage.getByRole("checkbox", { name: "Select ticket: Ticket A" }).click();
+    await expect(selectAll).toBeChecked({ indeterminate: true });
+    await expect(authenticatedPage.getByText("1 ticket selected")).toBeVisible();
+
+    // Clicking select-all again (from indeterminate) re-selects everything.
+    await selectAll.click();
+    await expect(selectAll).toBeChecked();
+    await expect(authenticatedPage.getByText("2 tickets selected")).toBeVisible();
+
+    await selectAll.click();
+    await expect(selectAll).not.toBeChecked();
+    await expect(authenticatedPage.getByRole("toolbar", { name: "Bulk ticket actions" })).toHaveCount(0);
+  });
+
+  test("adding and removing a single ticket from My Priority toggles the row action and persists across reload", async ({
+    authenticatedPage,
+    db,
+  }) => {
+    await db.query(`
+      INSERT INTO "Ticket" (id, subject, body, "customerEmail", "customerName", "createdAt", "updatedAt")
+      VALUES ('ticket-mark', 'Needs follow-up', 'body', 'm@example.com', 'M', '2026-06-10T10:00:00Z', '2026-06-10T10:00:00Z')
+    `);
+
+    await authenticatedPage.goto("/tickets");
+    const priorityRequest = authenticatedPage.waitForRequest(
+      (req) => req.method() === "POST" && req.url().includes("/api/tickets/ticket-mark/priority")
+    );
+    await authenticatedPage.getByRole("button", { name: 'Add "Needs follow-up" to My Priority' }).click();
+    await priorityRequest;
+    await expect(authenticatedPage.getByRole("button", { name: 'Remove "Needs follow-up" from My Priority' })).toBeVisible();
+
+    // Persists across reload — the marker is stored server-side, not just in client state.
+    await authenticatedPage.reload();
+    await expect(authenticatedPage.getByRole("button", { name: 'Remove "Needs follow-up" from My Priority' })).toBeVisible();
+
+    const removeRequest = authenticatedPage.waitForRequest(
+      (req) => req.method() === "DELETE" && req.url().includes("/api/tickets/ticket-mark/priority")
+    );
+    await authenticatedPage.getByRole("button", { name: 'Remove "Needs follow-up" from My Priority' }).click();
+    await removeRequest;
+    await expect(authenticatedPage.getByRole("button", { name: 'Add "Needs follow-up" to My Priority' })).toBeVisible();
+  });
+
+  test("bulk add/remove to My Priority updates all selected tickets without clearing the selection", async ({
+    authenticatedPage,
+    db,
+  }) => {
+    await db.query(`
+      INSERT INTO "Ticket" (id, subject, body, "customerEmail", "customerName", "createdAt", "updatedAt")
+      VALUES
+        ('ticket-a', 'Ticket A', 'first', 'a@example.com', 'A', '2026-06-10T10:00:00Z', '2026-06-10T10:00:00Z'),
+        ('ticket-b', 'Ticket B', 'second', 'b@example.com', 'B', '2026-06-11T10:00:00Z', '2026-06-11T10:00:00Z')
+    `);
+
+    await authenticatedPage.goto("/tickets");
+    await authenticatedPage.getByRole("checkbox", { name: "Select all visible tickets" }).click();
+
+    const bulkAddRequest = authenticatedPage.waitForRequest(
+      (req) => req.method() === "POST" && req.url().includes("/api/tickets/bulk/priority")
+    );
+    await authenticatedPage.getByRole("button", { name: "Add to My Priority" }).click();
+    const addBody = (await bulkAddRequest).postDataJSON();
+    expect(new Set(addBody.ids)).toEqual(new Set(["ticket-a", "ticket-b"]));
+    expect(addBody.priority).toBe(true);
+
+    // The rows are still visible, so the selection (and bulk bar) is intentionally preserved —
+    // unlike trash/restore/permanent-delete, prioritizing doesn't remove anything from view.
+    await expect(authenticatedPage.getByText("2 tickets selected")).toBeVisible();
+    await expect(authenticatedPage.getByRole("button", { name: 'Remove "Ticket A" from My Priority' })).toBeVisible();
+    await expect(authenticatedPage.getByRole("button", { name: 'Remove "Ticket B" from My Priority' })).toBeVisible();
+
+    const bulkRemoveRequest = authenticatedPage.waitForRequest(
+      (req) => req.method() === "POST" && req.url().includes("/api/tickets/bulk/priority")
+    );
+    await authenticatedPage.getByRole("button", { name: "Remove from My Priority" }).click();
+    const removeBody = (await bulkRemoveRequest).postDataJSON();
+    expect(new Set(removeBody.ids)).toEqual(new Set(["ticket-a", "ticket-b"]));
+    expect(removeBody.priority).toBe(false);
+
+    await expect(authenticatedPage.getByRole("button", { name: 'Add "Ticket A" to My Priority' })).toBeVisible();
+    await expect(authenticatedPage.getByRole("button", { name: 'Add "Ticket B" to My Priority' })).toBeVisible();
+  });
+
+  test("there is no Mark all visible action — priority is per-ticket and per-user only", async ({
+    authenticatedPage,
+  }) => {
+    await authenticatedPage.goto("/tickets");
+    await expect(authenticatedPage.getByRole("button", { name: "Mark all visible" })).toHaveCount(0);
+  });
+
+  test("a ticket marked as My Priority by one user is not visible as priority to another user", async ({
+    authenticatedPage,
+    browser,
+    db,
+  }) => {
+    await db.query(`
+      INSERT INTO "Ticket" (id, subject, body, "customerEmail", "customerName", "createdAt", "updatedAt")
+      VALUES ('ticket-shared', 'Shared ticket', 'body', 's@example.com', 'S', '2026-06-10T10:00:00Z', '2026-06-10T10:00:00Z')
+    `);
+
+    // User A (the default signed-in test user) marks the ticket as priority.
+    await authenticatedPage.goto("/tickets");
+    await authenticatedPage.getByRole("button", { name: 'Add "Shared ticket" to My Priority' }).click();
+    await expect(authenticatedPage.getByRole("button", { name: 'Remove "Shared ticket" from My Priority' })).toBeVisible();
+
+    // User B signs up fresh and views the very same ticket in an isolated browser context.
+    const userBContext = await browser.newContext();
+    const userBPage = await userBContext.newPage();
+    await userBPage.request.post(`${TEST_API_URL}/api/auth/sign-up/email`, {
+      data: { name: "User B", email: "userb@test.example", password: "password123" },
+    });
+
+    await userBPage.goto("/tickets");
+    await expect(userBPage.getByRole("link", { name: "Shared ticket" })).toBeVisible();
+    // User B must see the ticket as NOT prioritized — User A's marker is private.
+    await expect(userBPage.getByRole("button", { name: 'Add "Shared ticket" to My Priority' })).toBeVisible();
+    await expect(userBPage.getByRole("button", { name: 'Remove "Shared ticket" from My Priority' })).toHaveCount(0);
+
+    // User A's own view is unaffected by User B ever loading the ticket.
+    await authenticatedPage.reload();
+    await expect(authenticatedPage.getByRole("button", { name: 'Remove "Shared ticket" from My Priority' })).toBeVisible();
+
+    await userBContext.close();
+  });
+
+  test("bulk soft delete moves selected tickets to the Recycle Bin and clears the selection", async ({
+    authenticatedPage,
+    db,
+  }) => {
+    await db.query(`
+      INSERT INTO "Ticket" (id, subject, body, "customerEmail", "customerName", "createdAt", "updatedAt")
+      VALUES
+        ('ticket-a', 'Ticket A', 'first', 'a@example.com', 'A', '2026-06-10T10:00:00Z', '2026-06-10T10:00:00Z'),
+        ('ticket-b', 'Ticket B', 'second', 'b@example.com', 'B', '2026-06-11T10:00:00Z', '2026-06-11T10:00:00Z')
+    `);
+
+    await authenticatedPage.goto("/tickets");
+    await authenticatedPage.getByRole("checkbox", { name: "Select all visible tickets" }).click();
+
+    const bulkTrashRequest = authenticatedPage.waitForRequest(
+      (req) => req.method() === "POST" && req.url().includes("/api/tickets/bulk/trash")
+    );
+    await authenticatedPage.getByRole("button", { name: "Delete selected" }).click();
+    await bulkTrashRequest;
+
+    await expect(authenticatedPage.getByText("No tickets found.")).toBeVisible();
+    await expect(authenticatedPage.getByRole("toolbar", { name: "Bulk ticket actions" })).toHaveCount(0);
+    await expect(authenticatedPage.getByText("Moved 2 tickets to Recycle Bin.")).toBeVisible();
+  });
+
+  test("a single delete removes the ticket from the main list and it shows up in the Recycle Bin", async ({
+    authenticatedPage,
+    db,
+  }) => {
+    await db.query(`
+      INSERT INTO "Ticket" (id, subject, body, "customerEmail", "customerName", "createdAt", "updatedAt")
+      VALUES ('ticket-del', 'Delete me', 'body', 'd@example.com', 'D', '2026-06-10T10:00:00Z', '2026-06-10T10:00:00Z')
+    `);
+
+    await authenticatedPage.goto("/tickets");
+    await authenticatedPage.getByRole("button", { name: 'Move "Delete me" to Recycle Bin' }).click();
+    await expect(authenticatedPage.getByText("No tickets found.")).toBeVisible();
+
+    await authenticatedPage.getByRole("link", { name: "Recycle Bin" }).click();
+    await expect(authenticatedPage).toHaveURL("/recycle-bin");
+    await expect(authenticatedPage.getByRole("link", { name: "Delete me" })).toBeVisible();
+  });
+
 });

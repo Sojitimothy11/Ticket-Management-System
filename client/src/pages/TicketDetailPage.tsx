@@ -1,10 +1,13 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import type { ChangeEvent } from "react";
 import { Link, useParams } from "react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ChevronDown, Sparkles } from "lucide-react";
+import { ArrowLeft, ChevronDown, Paperclip, Sparkles, X } from "lucide-react";
 import { Navbar } from "../components/Navbar";
+import { authClient } from "../lib/auth-client";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
+import { cn } from "../lib/utils";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -12,9 +15,12 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
 } from "../components/ui/dropdown-menu";
-import { statusStyles, categoryLabels, formatDate, type TicketStatus, type TicketCategory } from "../lib/tickets";
+import { StatusBadge } from "../components/StatusBadge";
+import { categoryLabels, formatDate, type TicketStatus, type TicketCategory } from "../lib/tickets";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
+
+type Attachment = { id: string; filename: string; contentType: string | null; size: number };
 
 type Message = {
   id: string;
@@ -22,7 +28,18 @@ type Message = {
   isFromCustomer: boolean;
   createdAt: string;
   user: { id: string; name: string } | null;
+  attachments: Attachment[];
 };
+
+// Mirrors the server-side limits in server/src/lib/attachments.ts.
+const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
+const MAX_ATTACHMENTS_PER_MESSAGE = 5;
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 type Agent = { id: string; name: string };
 
@@ -73,13 +90,27 @@ async function patchTicket(id: string, patch: TicketPatch): Promise<TicketDetail
   return res.json();
 }
 
-async function postReply(id: string, body: string): Promise<TicketDetail> {
-  const res = await fetch(`${API}/api/tickets/${id}/messages`, {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ body }),
-  });
+async function postReply(id: string, body: string, files: File[]): Promise<TicketDetail> {
+  const res = await fetch(
+    `${API}/api/tickets/${id}/messages`,
+    files.length > 0
+      ? {
+          method: "POST",
+          credentials: "include",
+          body: (() => {
+            const formData = new FormData();
+            formData.append("body", body);
+            for (const file of files) formData.append("files", file);
+            return formData;
+          })(),
+        }
+      : {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ body }),
+        }
+  );
   if (!res.ok) throw new Error(`Failed to send reply (${res.status})`);
   return res.json();
 }
@@ -188,6 +219,11 @@ function AssigneePicker({ ticket }: { ticket: TicketDetail }) {
 
 const statusOptions: readonly TicketStatus[] = ["OPEN", "RESOLVED", "CLOSED"];
 const statusLabels: Record<TicketStatus, string> = { OPEN: "Open", RESOLVED: "Resolved", CLOSED: "Closed" };
+const statusTriggerStyles: Record<TicketStatus, string> = {
+  OPEN: "border-signal/30 text-signal hover:bg-signal/10",
+  RESOLVED: "border-buoy/30 text-buoy hover:bg-buoy/10",
+  CLOSED: "border-border text-muted-foreground",
+};
 const categoryOptions: readonly TicketCategory[] = ["GENERAL_QUESTION", "TECHNICAL_QUESTION", "REFUND_REQUEST"];
 
 function StatusPicker({ ticket }: { ticket: TicketDetail }) {
@@ -198,7 +234,7 @@ function StatusPicker({ ticket }: { ticket: TicketDetail }) {
       options={statusOptions}
       optionLabels={statusLabels}
       disabled={mutation.isPending}
-      triggerClassName={statusStyles[ticket.status]}
+      triggerClassName={cn("font-mono text-xs font-semibold tracking-wide uppercase", statusTriggerStyles[ticket.status])}
       onSelect={(status) => mutation.mutate({ status })}
     />
   );
@@ -231,10 +267,10 @@ export function TicketSummary({ ticketId }: { ticketId: string }) {
         {mutation.isPending ? "Summarizing…" : "Summarize"}
       </Button>
 
-      {mutation.isError && <p className="mt-2 text-sm text-red-600">{mutation.error.message}</p>}
+      {mutation.isError && <p className="mt-2 text-sm text-destructive">{mutation.error.message}</p>}
 
       {mutation.isSuccess && (
-        <div className="mt-3 bg-blue-50 border border-blue-100 rounded-lg p-4 text-sm text-slate-700 whitespace-pre-wrap">
+        <div className="mt-3 rounded-lg border border-harbor/20 bg-harbor/5 p-4 text-sm whitespace-pre-wrap text-foreground/90">
           {mutation.data}
         </div>
       )}
@@ -247,12 +283,16 @@ export function TicketSummary({ ticketId }: { ticketId: string }) {
 export function ReplyForm({ ticketId }: { ticketId: string }) {
   const queryClient = useQueryClient();
   const [body, setBody] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const mutation = useMutation({
-    mutationFn: () => postReply(ticketId, body),
+    mutationFn: () => postReply(ticketId, body, files),
     onSuccess: (updated) => {
       queryClient.setQueryData(["ticket", ticketId], updated);
       setBody("");
+      setFiles([]);
     },
   });
 
@@ -263,13 +303,36 @@ export function ReplyForm({ ticketId }: { ticketId: string }) {
 
   const busy = mutation.isPending || polishMutation.isPending;
 
+  function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
+    const selected = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (selected.length === 0) return;
+
+    if (files.length + selected.length > MAX_ATTACHMENTS_PER_MESSAGE) {
+      setFileError(`You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files`);
+      return;
+    }
+    const tooLarge = selected.find((file) => file.size > MAX_ATTACHMENT_SIZE);
+    if (tooLarge) {
+      setFileError(`"${tooLarge.name}" is larger than ${formatFileSize(MAX_ATTACHMENT_SIZE)}`);
+      return;
+    }
+
+    setFileError(null);
+    setFiles((prev) => [...prev, ...selected]);
+  }
+
+  function removeFile(index: number) {
+    setFiles((prev) => prev.filter((_, i) => i !== index));
+  }
+
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
         if (body.trim()) mutation.mutate();
       }}
-      className="mt-4 bg-white rounded-lg border border-slate-200 shadow-sm p-4"
+      className="mt-4 rounded-lg border border-border bg-card p-4 shadow-sm"
     >
       <Textarea
         value={body}
@@ -278,13 +341,58 @@ export function ReplyForm({ ticketId }: { ticketId: string }) {
         rows={4}
         disabled={busy}
       />
+
+      {files.length > 0 && (
+        <ul className="mt-2 flex flex-wrap gap-2">
+          {files.map((file, index) => (
+            <li
+              key={`${file.name}-${index}`}
+              className="flex items-center gap-1.5 rounded-md border border-border bg-muted px-2 py-1 text-xs text-foreground/90"
+            >
+              <Paperclip size={12} className="text-muted-foreground" />
+              <span className="max-w-[14rem] truncate">{file.name}</span>
+              <span className="text-muted-foreground">{formatFileSize(file.size)}</span>
+              <button
+                type="button"
+                onClick={() => removeFile(index)}
+                disabled={busy}
+                className="text-muted-foreground hover:text-foreground"
+                aria-label={`Remove ${file.name}`}
+              >
+                <X size={12} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {fileError && <p className="mt-2 text-sm text-destructive">{fileError}</p>}
       {polishMutation.isError && (
-        <p className="mt-2 text-sm text-red-600">{polishMutation.error.message}</p>
+        <p className="mt-2 text-sm text-destructive">{polishMutation.error.message}</p>
       )}
       {mutation.isError && (
-        <p className="mt-2 text-sm text-red-600">{mutation.error.message}</p>
+        <p className="mt-2 text-sm text-destructive">{mutation.error.message}</p>
       )}
       <div className="flex justify-end gap-2 mt-3">
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          onChange={handleFileChange}
+          disabled={busy || files.length >= MAX_ATTACHMENTS_PER_MESSAGE}
+          className="sr-only"
+          data-testid="reply-file-input"
+          aria-label="Attach files"
+        />
+        <Button
+          type="button"
+          variant="outline"
+          disabled={busy || files.length >= MAX_ATTACHMENTS_PER_MESSAGE}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <Paperclip size={14} />
+          Attach
+        </Button>
         <Button
           type="button"
           variant="outline"
@@ -306,6 +414,8 @@ export function ReplyForm({ ticketId }: { ticketId: string }) {
 
 export function TicketDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const { data: session } = authClient.useSession();
+  const isAdmin = (session?.user as { role?: string } | undefined)?.role === "ADMIN";
 
   const { data: ticket, isPending, error } = useQuery({
     queryKey: ["ticket", id],
@@ -315,56 +425,60 @@ export function TicketDetailPage() {
   });
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-background">
       <Navbar />
-      <main className="px-6 py-10 max-w-3xl mx-auto">
-        <Link to="/tickets" className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700 mb-4">
+      <main className="mx-auto max-w-3xl px-6 py-10">
+        <Link to="/tickets" className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground">
           <ArrowLeft size={14} />
           Back to tickets
         </Link>
 
-        {isPending && <p className="text-slate-500">Loading…</p>}
+        {isPending && <p className="text-muted-foreground">Loading…</p>}
 
         {error && (
-          <p className="text-red-600 bg-red-50 border border-red-200 rounded-md px-4 py-3 text-sm">
+          <p className="rounded-md border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             {error.message}
           </p>
         )}
 
         {ticket && (
           <>
-            <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-6 mb-6">
-              <div className="flex items-start justify-between gap-4 mb-3">
-                <h1 className="text-xl font-bold text-slate-900">{ticket.subject}</h1>
+            <div className="mb-6 rounded-lg border border-border bg-card p-6 shadow-sm">
+              <div className="mb-4 flex items-start justify-between gap-4">
+                <h1 className="font-heading text-xl font-semibold text-foreground">{ticket.subject}</h1>
                 <StatusPicker ticket={ticket} />
               </div>
 
-              <dl className="grid grid-cols-2 gap-y-2 text-sm">
-                <dt className="text-slate-400">Requester</dt>
-                <dd className="text-slate-700">
+              <dl className="grid grid-cols-2 gap-y-2.5 text-sm">
+                <dt className="text-muted-foreground">Requester</dt>
+                <dd className="text-foreground/90 break-words">
                   {ticket.customerName ?? ticket.customerEmail}
-                  {ticket.customerName && <span className="text-slate-400"> ({ticket.customerEmail})</span>}
+                  {ticket.customerName && <span className="text-muted-foreground"> ({ticket.customerEmail})</span>}
                 </dd>
 
-                <dt className="text-slate-400 self-center">Category</dt>
+                <dt className="self-center text-muted-foreground">Category</dt>
                 <dd>
                   <CategoryPicker ticket={ticket} />
                 </dd>
 
-                <dt className="text-slate-400 self-center">Assigned To</dt>
-                <dd>
-                  <AssigneePicker ticket={ticket} />
-                </dd>
+                {isAdmin && (
+                  <>
+                    <dt className="self-center text-muted-foreground">Assigned To</dt>
+                    <dd>
+                      <AssigneePicker ticket={ticket} />
+                    </dd>
+                  </>
+                )}
 
-                <dt className="text-slate-400">Created</dt>
-                <dd className="text-slate-700">{formatDate(ticket.createdAt)}</dd>
+                <dt className="text-muted-foreground">Created</dt>
+                <dd className="font-mono text-xs text-foreground/80 tabular-nums">{formatDate(ticket.createdAt)}</dd>
 
-                <dt className="text-slate-400">Last Updated</dt>
-                <dd className="text-slate-700">{formatDate(ticket.updatedAt)}</dd>
+                <dt className="text-muted-foreground">Last Updated</dt>
+                <dd className="font-mono text-xs text-foreground/80 tabular-nums">{formatDate(ticket.updatedAt)}</dd>
               </dl>
             </div>
 
-            <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">
+            <h2 className="mb-3 font-mono text-xs font-semibold tracking-wide text-muted-foreground uppercase">
               Conversation
             </h2>
             <div className="flex flex-col gap-3">
@@ -372,17 +486,36 @@ export function TicketDetailPage() {
                 <div
                   key={message.id}
                   data-testid="message"
-                  className={`rounded-lg border p-4 ${
-                    message.isFromCustomer ? "bg-white border-slate-200" : "bg-blue-50 border-blue-100"
-                  }`}
+                  className={cn(
+                    "rounded-lg border p-4",
+                    message.isFromCustomer ? "border-border bg-card" : "border-harbor/20 bg-harbor/5"
+                  )}
                 >
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-sm font-medium text-slate-900">
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <span className="text-sm font-medium text-foreground">
                       {message.isFromCustomer ? (ticket.customerName ?? ticket.customerEmail) : message.user?.name ?? "Agent"}
                     </span>
-                    <span className="text-xs text-slate-400">{formatDate(message.createdAt)}</span>
+                    <span className="font-mono text-xs text-muted-foreground tabular-nums">{formatDate(message.createdAt)}</span>
                   </div>
-                  <p className="text-sm text-slate-700 whitespace-pre-wrap">{message.body}</p>
+                  <p className="text-sm whitespace-pre-wrap text-foreground/90">{message.body}</p>
+                  {message.attachments.length > 0 && (
+                    <ul className="mt-2 flex flex-wrap gap-2">
+                      {message.attachments.map((attachment) => (
+                        <li key={attachment.id}>
+                          <a
+                            href={`${API}/api/tickets/attachments/${attachment.id}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center gap-1.5 rounded-md border border-border bg-muted px-2 py-1 text-xs text-foreground/90 hover:bg-muted/70"
+                          >
+                            <Paperclip size={12} className="text-muted-foreground" />
+                            <span className="max-w-[14rem] truncate">{attachment.filename}</span>
+                            <span className="text-muted-foreground">{formatFileSize(attachment.size)}</span>
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               ))}
             </div>

@@ -1,3 +1,5 @@
+import { existsSync } from "fs";
+import path from "path";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -29,6 +31,16 @@ app.use("/api/users", usersRouter);
 app.use("/api/email", emailRouter);
 app.use("/api/tickets", ticketsRouter);
 
+// Serves the built React app from the same origin/port as the API in production so
+// auth cookies never have to cross sites. Skipped entirely when client/dist hasn't been
+// built (e.g. local dev, where the client runs on its own Vite dev server instead).
+const clientDistPath = path.join(import.meta.dir, "../../client/dist");
+if (existsSync(clientDistPath)) {
+  app.use(express.static(clientDistPath));
+  app.get("/*splat", (_req, res) => {
+    res.sendFile(path.join(clientDistPath, "index.html"));
+  });
+}
 
 await boss.start();
 await startClassifyTicketWorker();
