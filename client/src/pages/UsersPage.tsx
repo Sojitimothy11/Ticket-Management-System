@@ -5,6 +5,7 @@ import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil, Trash2 } from "lucide-react";
 import { Navbar } from "../components/Navbar";
+import { API_URL } from "../lib/env";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -19,7 +20,7 @@ type User = {
 
 // ─── API helpers ─────────────────────────────────────────────────────────────
 
-const API = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+const API = API_URL;
 
 async function fetchUsers(): Promise<User[]> {
   const res = await fetch(`${API}/api/users`, { credentials: "include" });

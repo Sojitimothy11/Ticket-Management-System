@@ -17,6 +17,7 @@ import {
 } from "../components/ui/dropdown-menu";
 import { StatusBadge } from "../components/StatusBadge";
 import { categoryLabels, formatDate, type TicketStatus, type TicketCategory } from "../lib/tickets";
+import { API_URL } from "../lib/env";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -65,7 +66,7 @@ type TicketPatch = {
 
 // ─── API helpers ─────────────────────────────────────────────────────────────
 
-const API = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+const API = API_URL;
 
 async function fetchTicket(id: string): Promise<TicketDetail> {
   const res = await fetch(`${API}/api/tickets/${id}`, { credentials: "include" });

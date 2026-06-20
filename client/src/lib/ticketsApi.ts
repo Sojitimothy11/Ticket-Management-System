@@ -1,5 +1,6 @@
 import type { SortingState } from "@tanstack/react-table";
 import type { TicketCategory, TicketStatus } from "./tickets";
+import { API_URL } from "./env";
 
 export type Ticket = {
   id: string;
@@ -29,7 +30,7 @@ export type TicketsResponse = {
   totalPages: number;
 };
 
-const API = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+const API = API_URL;
 export const TICKETS_PAGE_SIZE = 20;
 
 export async function fetchTickets(

@@ -16,6 +16,7 @@ import {
 } from "recharts";
 import { Navbar } from "../components/Navbar";
 import { categoryLabels, type TicketCategory, type TicketStatus } from "../lib/tickets";
+import { API_URL } from "../lib/env";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -35,7 +36,7 @@ type Analytics = {
 
 // ─── API helpers ─────────────────────────────────────────────────────────────
 
-const API = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+const API = API_URL;
 
 async function fetchAnalytics(): Promise<Analytics> {
   const res = await fetch(`${API}/api/tickets/analytics`, { credentials: "include" });
