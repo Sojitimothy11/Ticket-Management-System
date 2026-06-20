@@ -4,8 +4,16 @@ const raw = import.meta.env.VITE_API_URL;
 // string `""` instead of an actually-empty value — strip that so "empty" really means empty.
 const normalized = raw === undefined ? undefined : raw.trim().replace(/^['"]|['"]$/g, "");
 
-// Same-origin production deploys: relative fetch paths via API_URL = "", and AUTH_BASE_URL
-// omitted (undefined) so better-auth defaults to the current origin instead of throwing
-// on an empty-string baseURL.
-export const API_URL = normalized === undefined ? "http://localhost:3000" : normalized;
-export const AUTH_BASE_URL = normalized === undefined ? "http://localhost:3000" : normalized || undefined;
+// Vite always hardcodes import.meta.env.DEV to the literal boolean `false` in a real
+// `vite build` (and `true` in its dev server) — so checking `=== false` only matches an
+// actual production build. It's `undefined` under Bun's test runner and bare script
+// execution (no Vite involved at all), which fall through to the dev-style localhost
+// fallback below — never throwing on an unresolvable same-origin URL.
+const isProdBuild = import.meta.env.DEV === false;
+
+// Whether VITE_API_URL ends up unset or set to "", both must mean "same origin" in a
+// production build — only fall back to localhost:3000 outside of one. Keying this off
+// isProdBuild (rather than "was the var set at all") means a deploy can't accidentally
+// point at localhost just because the variable was deleted instead of emptied.
+export const API_URL = normalized || (isProdBuild ? "" : "http://localhost:3000");
+export const AUTH_BASE_URL = normalized || (isProdBuild ? undefined : "http://localhost:3000");
