@@ -3,7 +3,7 @@
   "private": true,
   "workspaces": ["client", "server", "e2e"],
   "scripts": {
-    "build": "cd client && bun run build && cd ../server && bunx prisma generate",
-    "start": "cd server && bunx prisma migrate deploy && bun run start"
+    "build": "cd client && bun run build && cd ../server && bun run generate",
+    "start": "cd server && bun run migrate:deploy && bun run start"
   }
 }
