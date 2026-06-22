@@ -42,7 +42,9 @@ router.post("/inbound/:secret", requireInboundEmailSecret, uploadAttachmentsOrSk
     return;
   }
 
-  const supportAddress = process.env.SUPPORT_EMAIL_ADDRESS;
+  // Trimmed defensively — env var dashboards are an easy place to pick up a stray
+  // leading/trailing space or invisible character from a copy-paste.
+  const supportAddress = process.env.SUPPORT_EMAIL_ADDRESS?.trim();
   if (supportAddress && !to.toLowerCase().includes(supportAddress.toLowerCase())) {
     res.status(200).json({ ok: false, error: "Not addressed to the support address" });
     return;
